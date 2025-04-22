@@ -1,0 +1,1124 @@
+---
+title: "ideology_independence_model"
+author: "Alice Timken"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# -------------- Packages -------------------------------
+## First specify the packages of interest
+packages <- c("stats", "graphics", "Hmisc", "ggplot2","randomizr", 
+              "lmtest", "sandwich", "rmarkdown", "dagitty", "devtools", 
+              "knitr", "haven", "estimatr", "rdrobust" , "labelled",
+              "expss", "dplyr", "xtable", "poliscidata", "plm",
+              "optimx", "margins", "glm2", "naniar", "TSstudio", "gmodels")
+## Now load or install&load all
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+```
+
+### Load Data After Prep
+
+RDAta file from ideology_independence_data.Rmd
+
+```{r load data}
+
+load('~/Desktop/Phd Program/Fall 2024/Spring 2025/Quant Model Submission/ideology_independence_data.RData')
+
+## limit df to observations where government ideology & LJI are not NA
+
+# high low edi for plots
+df$edi_high[df$v2x_polyarchy >= 0.6] <- "high edi"
+df$edi_high[df$v2x_polyarchy < 0.6] <- "low edi"
+
+df.model <- subset(df, (!is.na(api_gov) & !is.na(popul_gov)) & !is.na(LJI_lag1) & boix_democracy ==1)
+
+df.cabinets.model <- subset(df.cabinets, !(api_gov == 0 & popul_gov == 0 & conserv_gov == 0)  & boix_democracy ==1)
+df.cabinets.model.gov <- subset(df.cabinets.model, gov_parties == 1)
+df.cabinets.model.opp <- subset(df.cabinets.model, gov_parties == 0)
+
+df.autocracies <- subset(df, (!is.na(api_gov) & !is.na(popul_gov)) & !is.na(LJI_lag1) & boix_democracy ==0)
+
+```
+
+```{r subset data}
+
+# Subset main
+df.europe.northamerica <- subset(df, e_regiongeo %in% c("1","2","3","4","16") & year >= 1945)
+df.northamerica <- subset(df, e_regiongeo %in% c("16"))
+df.americas <- subset(df, e_regiongeo %in% c("16", "17", "18"))
+df.europe <- subset(df, e_regiongeo %in% c("1","2","3","4"))
+
+europ.na.cy2 <- unique(df.europe.northamerica$cy2)
+
+# Subset cabinets
+df.cabinets.europe.northamerica <- subset(df.cabinets.model.gov, cy2 %in% europ.na.cy2 & election_year >= 1945)
+
+```
+
+### Data summary
+
+```{r data summary}
+# Relevant summary stats
+summary(df.model$year) # 1970-2014
+summary(df.model$api_gov) # 0.0178-0.946
+summary(df.model$LJI_lag1) # 0.0865-0.993
+summary(df.model$polconiii) # 0.00-0.72, 2 NAs
+
+hist(df.model$year)
+
+### Tables
+
+states_list <- unique(df.model$country_name) #110
+cy2_list <- unique(df.model$cy2)
+
+partyid_list <- unique(vparty$pf_party_id[(vparty$cy2 %in% cy2_list)]) #1224
+partyname_list <- unique(vparty$v2paenname[(vparty$cy2 %in% cy2_list)]) #1168
+
+# Country-year observations Appendix Table
+country_years_df <- as.data.frame(table(df.model$country_name))
+names(country_years_df)[names(country_years_df) == 'Var1'] <- 'Country'
+names(country_years_df)[names(country_years_df) == 'Freq'] <- 'N Obs.'
+xtable(country_years_df)
+
+```
+```{r LJI range}
+p <- ggplot(data = df.model,
+            mapping = aes(x = reorder(region, LJI_lag1, na.rm=TRUE),
+                          y = LJI_lag1))
+p + geom_boxplot() + labs(x=NULL) +
+    coord_flip() + theme(legend.position = "top") +
+  theme_bw()
+
+```
+
+```{r time series}
+
+# Judicial constraints on executive
+p <- ggplot(data = df.europe,
+            mapping = aes(x = year, y = v2x_jucon))
+p + geom_line(aes(group = country_name)) + facet_wrap(~ country_name)
+
+# EDI
+p <- ggplot(data = df.europe,
+            mapping = aes(x = year, y = v2x_polyarchy))
+p + geom_line(aes(group = country_name)) + facet_wrap(~ country_name)
+
+# Competition
+p <- ggplot(data = df.europe,
+            mapping = aes(x = year, y = polconiii))
+p + geom_line(aes(group = country_name)) + facet_wrap(~ country_name)
+
+```
+```{r pol can stats}
+
+# mean for cabinets
+mean_cabinets_api <- mean(df.cabinets.model.gov$api_gov)
+mean_cabinets_popul <- mean(df.cabinets.model.gov$popul_gov)
+# sd for cabinets
+sd_cabinets_api <- sd(df.cabinets.model.gov$api_gov)
+sd_cabinets_popul <- sd(df.cabinets.model.gov$popul_gov)
+
+# mean for canada
+mean_can_api <- mean(df.cabinets.model.gov$api_gov[df.cabinets.model.gov$country_name == "Canada"])
+mean_can_popul <- mean(df.cabinets.model.gov$popul_gov[df.cabinets.model.gov$country_name == "Canada"])
+# sd for canada
+sd_can_api <- sd(df.cabinets.model.gov$api_gov[df.cabinets.model.gov$country_name == "Canada"])
+sd_can_popul <- sd(df.cabinets.model.gov$popul_gov[df.cabinets.model.gov$country_name == "Canada"])
+
+# mean for poland
+mean_pol_api <- mean(df.cabinets.model.gov$api_gov[df.cabinets.model.gov$country_name == "Poland"])
+mean_pol_popul <- mean(df.cabinets.model.gov$popul_gov[df.cabinets.model.gov$country_name == "Poland"])
+# sd for poland
+sd_pol_api <- sd(df.cabinets.model.gov$api_gov[df.cabinets.model.gov$country_name == "Poland"])
+sd_pol_popul <- sd(df.cabinets.model.gov$popul_gov[df.cabinets.model.gov$country_name == "Poland"])
+
+```
+
+```{r time series one country}
+
+df.plot <- subset(df.model, country_name == "Canada" )
+
+# LJI
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = LJI))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(0,1) + xlim(1989,2024) + theme_bw()
+
+# Judicial constraints on executive
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = v2x_jucon))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(0,1) + xlim(1989,2024)
+
+# Legislative constraints on executive
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = v2xlg_legcon))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(0,1) + xlim(1989,2024) + theme_bw()
+
+# Divided party control
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = v2x_divparctrl))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(-1.5,1) + xlim(1989,2024)
+
+# EDI
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = v2x_polyarchy))
+p + geom_line()+ geom_vline(xintercept = 2006) + ylim(0,1) + xlim(1989,2024)
+
+# Competition
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = polconiii))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(0,1) + xlim(1989,2024)
+
+# API
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = api_gov))
+p + geom_point()+ geom_vline(xintercept = 2006) + ylim(0,1) + xlim(1989,2024)
+
+# Popul
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = popul_gov))
+p + geom_point()+ geom_vline(xintercept = 2006) + ylim(0,1) + xlim(1989,2024)
+
+### Export
+
+#df.export <- subset(df.cabinets.model.gov, country_name == "Poland" | country_name == "Canada")
+#write.csv(df.export, '~/Desktop/Phd Program/Fall 2024/Spring 2025/Quant Model Submission/poland.canada.parl.csv')
+
+df.plot <- subset(df, country_name == "Poland" & year >= 1982)
+
+# v2jupack, v2jupurge, v2juhcind
+library(tidyr)
+df.plot %>%
+    gather(key,value, LJI, v2x_jucon, v2jupack, v2jupurge, v2juhcind) %>%
+    ggplot(aes(x=year, y=value, colour=key, shape =key)) +
+    geom_line() +
+  geom_point()+
+  theme_bw() +
+  ylim(-1,3) +
+  geom_vline(xintercept = c(2015,2023), color = "darkgray", alpha = 0.8) +
+  xlab("Year") +
+  # Edit legend title and labels
+  scale_color_manual(name= "key", labels = c("LJI", "H.C. Independence", "Court Packing", "Purges", "Judicial Constraints"), values = c("blue", "red", "black", "green4", "darkorange")) +
+  scale_shape_manual(name = "key", labels = c("LJI", "H.C. Independence", "Court Packing", "Purges", "Judicial Constraints"), values = c(15, 16, 3, 7, 17))
+
+#summary(vdem$v2jupack)
+#summary(vdem$v2jupurge)
+#summary(vdem$v2juhcind)
+
+```
+
+```{r time series another country}
+
+df.plot <- subset(df.model, country_name == "Poland" )
+
+# LJI
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = LJI))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(0,1) + xlim(1989,2024) + theme_bw()
+
+# Judicial constraints on executive
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = v2x_jucon))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(0,1) + xlim(1989,2024)
+
+# Legislative constraints on executive
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = v2xlg_legcon))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(0,1) + xlim(1989,2024) + theme_bw()
+
+# Divided party control
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = v2x_divparctrl))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(-1.5,1) + xlim(1989,2024)
+
+# EDI
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = v2x_polyarchy))
+p + geom_line()+ geom_vline(xintercept = 2006) + ylim(0,1) + xlim(1989,2024)
+
+# Competition
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = polconiii))
+p + geom_line()+ geom_vline(xintercept = c(2006,2011,2015)) + ylim(0,1) + xlim(1989,2024)
+
+# API
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = api_gov))
+p + geom_point()+ geom_vline(xintercept = 2006) + ylim(0,1) + xlim(1989,2024)
+
+# Popul
+p <- ggplot(data = df.plot,
+            mapping = aes(x = year, y = popul_gov))
+p + geom_point()+ geom_vline(xintercept = 2006) + ylim(0,1) + xlim(1989,2024)
+
+```
+
+
+## Summary Statistics
+
+```{r summary statistics}
+
+## Summary Statistics
+
+library(modelsummary)
+
+# Country-year statistics
+datasummary(Heading("Gov. Anti-pluralism")*api_gov + Heading("Gov. Populism")*popul_gov+ Heading("Gov. Conservativeness")*conserv_gov + Heading("Gov. Extremism")*extremism_gov + Heading('Democracy Index')*v2x_polyarchy + Heading("Judicial Independence")*LJI_lag1 + Heading("Political Competition")*polconiii+ Heading("Log GDP/Capita")*log_e_gdppc+ Heading("Log Years Democratic")*boix_democracy_duration_log ~ (Mean + SD + Min + Median + Max)*Arguments(na.rm=TRUE), 
+            data = df.model,
+            title = 'Summary Statistics',
+            notes = c('Data from Staton et al. 2019, Henisz 2002, V-Party, and V-Dem.'),
+            output = 'table_summary.tex')
+
+# Country-year statistics
+datasummary(Heading("Gov. Anti-pluralism")*api_gov + Heading("Gov. Populism")*popul_gov+ Heading("Gov. Conservativeness")*conserv_gov + Heading("Gov. Extremism")*extremism_gov + Heading('Democracy Index')*v2x_polyarchy + Heading("Judicial Independence")*LJI_lag1 + Heading("Political Competition")*polconiii+ Heading("Log GDP/Capita")*log_e_gdppc+Heading("Log Years Democratic")*boix_democracy_duration_log ~ (Mean + SD + Min + Median + Max)*Arguments(na.rm=TRUE), 
+            data = df.model,
+            title = 'Summary Statistics',
+            notes = c('Data from Staton et al. 2019, Henisz 2002, V-Party, and V-Dem.'))#,
+           # output = 'table_summary.tex')
+
+
+```
+
+```{r summary stats parliaments}
+
+# Country-year statistics
+datasummary(Heading('Democracy Index')*v2x_polyarchy + Heading("Judicial Independence")*LJI_lag1 + Heading("Political Competition")*polconiii+ Heading("Log GDP/Capita")*log_e_gdppc+Heading("Log Years Democratic")*boix_democracy_duration_log ~ (Mean + SD + Min + Median + Max)*Arguments(na.rm=TRUE), 
+            data = df.cabinets.model,
+            title = 'Summary Statistics: Country-level Data',
+            notes = c('Data from ParlGov, Staton et al. 2019, Henisz 2002, V-Party, and V-Dem.'),
+            output = 'table_summary_parliament.tex')
+
+# Country-year statistics
+datasummary(Heading('Democracy Index')*v2x_polyarchy + Heading("Judicial Independence")*LJI_lag1 + Heading("Political Competition")*polconiii+ Heading("Log GDP/Capita")*log_e_gdppc+Heading("Log Years Democratic")*boix_democracy_duration_log ~ (Mean + SD + Min + Median + Max)*Arguments(na.rm=TRUE), 
+            data = df.cabinets.model,
+            title = 'Summary Statistics: Country-level Data',
+            notes = c('Data from ParlGov, Staton et al. 2019, Henisz 2002, V-Party, and V-Dem.'))#,
+         #   output = 'table_summary_parliament.tex')
+
+# Country-year statistics
+datasummary(
+  (Heading("Gov. Anti-pluralism")*api_gov + Heading("Gov. Populism")*popul_gov + Heading("Gov. Conservativeness")*conserv_gov + Heading("Gov. Extremism")*extremism_gov) ~ as.factor(gov_parties)*(Mean + SD)*Arguments(na.rm=TRUE),
+            data = df.cabinets.model,
+            title = 'Summary Statistics: Governing vs. Opposition Parties',
+            notes = c('Data from ParlGov, Staton et al. 2019, Henisz 2002, V-Party, and V-Dem.'),
+            output = 'table_summary_parliament_partydata.tex')
+
+# Country-year statistics
+datasummary(
+   (Heading("Gov. Anti-pluralism")*api_gov + Heading("Gov. Populism")*popul_gov + Heading("Gov. Conservativeness")*conserv_gov + Heading("Gov. Extremism")*extremism_gov) ~ as.factor(gov_parties)*(Mean + SD)*Arguments(na.rm=TRUE),
+            data = df.cabinets.model,
+            title = 'Summary Statistics: Governing vs. Opposition Parties',
+            notes = c('Data from ParlGov, Staton et al. 2019, Henisz 2002, V-Party, and V-Dem.')) #,
+           # output = 'table_summary_parliament_partydata.tex')
+
+```
+
+
+## Including Plots
+
+```{r plots, echo=FALSE}
+
+library(ggplot2)
+library(ggrepel)
+
+# mean values for lines
+mean_api <- mean(df.europe.northamerica$api_gov, na.rm = TRUE)
+mean_popul <- mean(df.europe.northamerica$popul_gov, na.rm = TRUE)
+
+df.cabinets.polcan <- subset(df.cabinets.europe.northamerica, grepl("POL|CAN", df.cabinets.europe.northamerica$cy))
+
+# plot model data
+ggplot(data = df.europe.northamerica, mapping = aes(x = api_gov, y = popul_gov)) +
+  geom_point(alpha = ifelse(grepl("POL", df.europe.northamerica$cy), 1, 0.8), color = ifelse(grepl("POL", df.europe.northamerica$cy), "red", "cyan4"), shape = ifelse(grepl("POL|CAN|BIH", df.europe.northamerica$cy), 17, 16)) +
+  theme_bw() +
+  ylim(0,1) +
+  xlim(0,1) +
+  geom_text_repel(size= 3.3,
+                  aes(label = ifelse(grepl("POL|CAN|BIH", df.europe.northamerica$cy), cy, "")),
+                  min.segment.length = 0,
+                  point.padding = 0) +
+#  facet_wrap(~ boix_democracy_text) + #, scales = "free_y") +
+  geom_abline(slope=1, color = "darkgray") +
+  geom_vline(xintercept = mean_api, alpha = 0.6) +
+  geom_hline(yintercept = mean_popul, alpha = 0.6) +
+#  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(x = "Gov. Anti-pluralism", y = "Gov. Populism")
+
+### --------------
+
+
+# plot all european data
+ggplot(data = df.americas, mapping = aes(x = api_gov, y = popul_gov)) +
+  geom_point(alpha = ifelse(grepl("USA", df.americas$cy), 1, 0.6), color = ifelse(grepl("USA", df.americas$cy), "coral3", "cyan4"), shape = ifelse(grepl("USA", df.americas$cy), 17, 16)) +
+  theme_bw() +
+  ylim(0,1) +
+  xlim(0,1) +
+  geom_text_repel(aes(label = cy),
+                  min.segment.length = 0,
+                  point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  geom_abline(slope=1, color = "darkgray") +
+  geom_vline(xintercept = mean_api) +
+  geom_hline(yintercept = mean_popul) +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(x = "Gov. Anti-pluralism", y = "Gov. Populism")
+
+```
+
+
+
+
+# Models
+
+#### Correlations
+
+```{r main correlations}
+
+### correlations between API and Populism
+cor.test(df.model$api_gov, df.model$popul_gov, 
+                    method = "pearson")
+### Cabinet data
+cor.test(df.model$api_gov, df.model$popul_gov, 
+                    method = "pearson")
+
+```
+
+#### Main models 
+```{r main model}
+
+
+# API model
+mainmodels <- list("Naive"  = lm_robust(LJI_lag1 ~ api_gov + popul_gov,
+                                data = df.model),
+                  # "Without"  = lm_robust(LJI_lag1 ~ polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                  #              data = df.model),
+                       "Controls"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.model),
+                "FE"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "FE, Int."  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name))#,
+ #               "FE, Ext."  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + log_e_gdppc+ boix_democracy_duration_log + v2xlg_legcon + v2x_divparctrl + fdi_inflow + as.factor(country_name),
+#                                data = df.model, cluster = country_name),
+ #               "FE, Ext. Int."  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + v2xlg_legcon + v2x_divparctrl + fdi_inflow + as.factor(country_name),
+ #                               data = df.model, cluster = country_name) )
+
+
+# API plot models
+plotmodels <- list("Controls (2)"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.model),
+                "FE (3)"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "FE, Int. (4)"  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name))
+# FDI inflow no longer needed bc FDI most important for autocracies
+
+# b is background
+b <- list(geom_vline(xintercept = 0, color = 'darkgray'))
+
+# Coef rename in coef map
+cm <- c("api_gov" = "Gov. Anti-pluralism",
+        "popul_gov" = "Gov. Populism",
+        "conserv_gov" = "Gov. Conservativeness",
+        "extremism_gov" = "Gov. Extremism",
+        "v2paseatshare" = "Seat share",
+        "v2x_polyarchy" = "Democracy Index",
+        "fdi_inflow" = "FDI",
+        "e_gdppc" = "GDP/capita",
+        "log_e_gdppc" = "Log GDP/capita",
+        "api_gov:v2paseatshare" = "API*Seat share",
+        "api_gov:v2x_polyarchy" = "API*EDI",
+        "left_right" = "Left-right scale",
+        "country_name" = "Country",
+        "v2juhccomp" = "Compliance with High Court",
+        "(Intercept)" = "Intercept",
+        "polconiii" = "Competition",
+        "POLCONIII_VDEM" = "Competition (w/ V-Dem)",
+        "post1991" = "Post-1991",
+        "POLCONIII_VDEM:v2x_polyarchy" = "Competition*Democracy",
+        "reg_trans" = "regime transition",
+        "POLCONIII_VDEM:boix_democracy" = "Political competition*Democracy",
+        "polconiii:boix_democracy" = "Political competition*Democracy",
+        "boix_democracy_trans" = "Democratic transition",
+        "boix_democracy" = "Democracy",
+        "v2x_regime" = "Regime Type",
+        "v2x_regime:POLCONIII_VDEM" = "Competition*Regime Type",
+        "POLCONIII_VDEM:api_gov" = "Competition*Anti-pluralism",
+        "boix_democracy:api_gov" = "Democracy*Anti-pluralism",
+        "polconiii:v2x_polyarchy" = "Competition*Democracy Index",
+        "gov_parties" = "Governing Party",
+        "api_gov:gov_parties" = "Governing Party*Anti-pluralism",
+        "fdi_inflow_log" = "FDI (log)",
+        "boix_democracy_duration_log" = "Log Years Democratic",
+        "regionE. Europe" = "E. Europe",
+        "regionLatin Am." = "Latin Am.",
+        "regionMENA" = "MENA",
+        "regionPacific" = "Pacific",
+        "regionS. Asia" = "S. Asia",
+        "regionS.E. Asia" = "S.E. Asia",
+        "regionSub-S. Africa" = "Sub-S. Africa",
+        "regionW. Europe, N. Am." = "W. Europe & N. America",
+        'popul_gov:api_gov' = 'Gov. Anti-pluralism*Gov. Populism',
+        'api_gov:popul_gov' = 'Gov. Anti-pluralism*Gov. Populism')
+
+# In view format
+modelsummary(mainmodels, 
+             coef_rename = cm,
+             title = 'Anti-pluralism, Populism, and Judicial independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'main_model.tex')
+
+# In .tex format
+modelsummary(mainmodels, 
+             coef_rename = cm,
+             title = 'Anti-Pluralism, Populism, and Judicial independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'table_replication.tex')
+
+
+##########################
+
+#new coefmap
+cm_plot <- c(
+        #"boix_democracy_duration_log" = "Years Democratic",
+        #'log_e_gdppc' = 'Log GDP/Cap.',
+        'polconiii' = 'Competition', 
+        'conserv_gov' = 'Gov. Conservatism',
+        'api_gov' = 'Gov. Anti-pluralism',
+        'popul_gov' = 'Gov. Populism',
+        'popul_gov:api_gov' = 'Anti-pluralism*Populism',
+        'api_gov:popul_gov' = 'Anti-pluralism*Populism')
+
+modelplot(plotmodels, size = 0.6, coef_omit = "as.factor|Intercept", coef_map = cm_plot)+
+  aes(shape = model) +
+  theme_bw() +
+  scale_color_manual(values = c("black", "black", "darkorange"))+
+  b
+
+```
+### Interactions, main model
+
+```{r interactions main}
+
+lm_interact <- lm(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model)
+
+library(interactions)
+# https://cran.r-project.org/web/packages/interactions/vignettes/interactions.html
+# confidence bands: confidence interval width expressed as the percentile (ex. int.width = 0.8 corresponds to an 80% interval.)
+
+# populism as moderator
+interact_plot(lm_interact, pred = api_gov, modx = popul_gov, interval = TRUE,
+              int.width = 0.80
+              )
+
+# api as moderator
+interact_plot(lm_interact, pred = popul_gov, modx = api_gov, interval = TRUE,
+              int.width = 0.80,
+              x.label = "Gov. Populism", y.label = "Independence (one year later)", legend.main = "Gov. Anti-pluralism"#,
+              #colors = "seagreen"
+              )
+
+
+## slope plot
+# populism as moderator
+#ss <- sim_slopes(lm_interact, pred = api_gov, modx = popul_gov, 
+#                 modx.values = c(0.17, 0.32, 0.47)) # values based on mean api, +/ 1 SD
+#plot(ss)
+# api as moderator
+ss <- sim_slopes(lm_interact, pred = popul_gov, modx = api_gov, 
+                 modx.values = c(0.05, 0.27, 0.49))
+plot(ss)
+
+
+## Johnson-Neyman interval. 
+# This tells you all the values of the moderator for which the slope of the predictor will be statistically significant
+# populism
+johnson_neyman(lm_interact, pred = popul_gov, modx = api_gov, alpha = .05, title = "Johnson-Neyman plot",
+  y.label = "Slope of Gov. Populism",
+  modx.label = "Anti-pluralism")
+# api
+johnson_neyman(lm_interact, pred = api_gov, modx = popul_gov, alpha = .05)
+
+```
+
+
+#### Main models - Various LJI lag & lead times ROBUSTNESS check
+```{r main model}
+
+
+# API model
+mainmodels_lead <- list("Lag 2-yr. FE"  = lm_robust(LJI_lead2 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                        "Lag 2-yr FE, Int."  = lm_robust(LJI_lead2 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                        "Lag 1-yr. FE"  = lm_robust(LJI_lead1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "Lag 1-yr FE, Int."  = lm_robust(LJI_lead1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "No lag FE"  = lm_robust(LJI ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "No lag FE, Int."  = lm_robust(LJI ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "*Lead 1-yr. FE"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "*Lead 1-yr FE, Int."  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "Lead 2-yr. FE"  = lm_robust(LJI_lag2 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "Lead 2-yr FE, Int."  = lm_robust(LJI_lag2 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "Lead 3-yr. FE"  = lm_robust(LJI_lag3 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "Lead 3-yr FE, Int."  = lm_robust(LJI_lag3 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name))
+
+
+# In view format
+modelsummary(mainmodels_lead, 
+             coef_rename = cm,
+             title = 'Anti-pluralism, Populism, and Judicial independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'main_model_lead.tex')
+
+# In .tex format
+modelsummary(mainmodels_lead, 
+             coef_rename = cm,
+             title = 'Anti-Pluralism, Populism, and Judicial independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'table_replication_lead.tex')
+
+```
+
+
+#### Main models, alternative (LJI_vdem)
+```{r main model}
+
+
+# API model
+mainmodels_alt <- list("Naive"  = lm_robust(LJI_vdem_lag1 ~ api_gov + popul_gov,
+                                data = df.model),
+                       "Controls"  = lm_robust(LJI_vdem_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.model),
+                "FE"  = lm_robust(LJI_vdem_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "FE, Int."  = lm_robust(LJI_vdem_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name))
+mainmodels_alt
+
+# API plot models
+plotmodels_alt <- list("Controls (2.A)"  = lm_robust(LJI_vdem_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.model),
+                "FE (3.A)"  = lm_robust(LJI_vdem_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "FE, Int. (5.A)"  = lm_robust(LJI_vdem_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name))
+# FDI inflow no longer needed bc FDI most important for autocracies
+
+# In view format
+modelsummary(mainmodels_alt, 
+             coef_rename = cm,
+             title = 'Anti-pluralism, Populism, and Judicial Independence (Alt.)',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'main_model_alt.tex')
+
+# In .tex format
+modelsummary(mainmodels_alt, 
+             coef_rename = cm,
+             title = 'Anti-Systemness, Populism, and Judicial independence (Alt.)',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'table_replication.tex')
+
+
+##########################
+
+#new coefmap
+#cm_plot <- c(
+#        #"boix_democracy_duration_log" = "Years Democratic",
+#        'log_e_gdppc' = 'Log GDP/Cap.',
+#        'polconiii' = 'Competition', 
+#        'api_gov' = 'Gov. Anti-Systemness',
+#        'popul_gov' = 'Gov. Populism',
+#        'popul_gov:api_gov' = 'Anti-systemness*Populism',
+#        'api_gov:popul_gov' = 'Anti-systemness*Populism')
+
+modelplot(plotmodels_alt, size = 0.6, coef_omit = "as.factor|Intercept", coef_map = cm_plot)+
+  aes(shape = model) +
+  theme_bw() +
+  scale_color_manual(values = c("black", "black", "darkorange"))+
+  b
+
+```
+
+
+#### Cabinet models, gov 
+
+```{r cabinet correlations}
+
+# Gov only
+df.cabinets.model.gov <- subset(df.cabinets.model, gov_parties == 1)
+
+## All significant
+
+### correlations between API and Populism
+#cor(df.cabinets.model.gov$api_gov, df.cabinets.model.gov$popul_gov)
+cor.test(df.cabinets.model.gov$api_gov, df.cabinets.model.gov$popul_gov, 
+                    method = "pearson")
+### correlations between API and LJI
+cor.test(df.cabinets.model.gov$api_gov, df.cabinets.model.gov$LJI_lag1, 
+                    method = "pearson")
+### correlations between Populism and LJI
+cor.test(df.cabinets.model.gov$popul_gov, df.cabinets.model.gov$LJI_lag1, 
+                    method = "pearson")
+### correlations between interaction and LJI
+cor.test((df.cabinets.model.gov$popul_gov*df.cabinets.model.gov$api_gov), df.cabinets.model.gov$LJI_lag1, 
+                    method = "pearson")
+
+```
+
+```{r cabinet model}
+
+# API model cabinet
+cabinetmodels <- list("Naive"  = lm_robust(LJI_lag1 ~ api_gov + popul_gov,
+                                data = df.cabinets.model.gov),
+                       "Controls"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.cabinets.model.gov),
+                "FE"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "FE, Int."  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name))
+
+
+# API plot models cabinet
+plotcabinetmodels <- list("Controls (6)"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.cabinets.model.gov),
+                "FE (7)"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "FE, Int. (8)"  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name))
+# FDI inflow no longer needed bc FDI most important for autocracies
+
+
+# In view format
+modelsummary(cabinetmodels, 
+             coef_rename = cm,
+             title = 'Anti-Systemness, Populism, and Independence in Parliamentary Democracies',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'cabinet_model.tex')
+
+# In .tex format
+modelsummary(cabinetmodels, 
+             coef_rename = cm,
+             title = 'Anti-pluralism, Populism, and Independence in Parliamentary Democracies',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'table_replication.tex')
+
+
+##########################
+
+#new coefmap
+cm_plot <- c(
+        #"boix_democracy_duration_log" = "Years Democratic",
+        'log_e_gdppc' = 'Log GDP/Cap.',
+        'polconiii' = 'Competition', 
+        'api_gov' = 'Gov. Anti-pluralism',
+        'popul_gov' = 'Gov. Populism',
+        'popul_gov:api_gov' = 'Anti-pluralism*Populism',
+        'api_gov:popul_gov' = 'Anti-pluralism*Populism')
+
+modelplot(plotcabinetmodels, size = 0.6, coef_omit = "as.factor|Intercept", coef_map = cm_plot)+
+  aes(shape = model) +
+  theme_bw() +
+  scale_color_manual(values = c("black", "black", "darkorange"))+
+  b
+
+```
+Interaction, cabinets
+
+```{r interactions cabinets}
+
+lm_interact <- lm(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov)
+
+library(interactions)
+# https://cran.r-project.org/web/packages/interactions/vignettes/interactions.html
+# confidence bands: confidence interval width expressed as the percentile (ex. int.width = 0.8 corresponds to an 80% interval.)
+
+# populism as moderator
+interact_plot(lm_interact, pred = api_gov, modx = popul_gov, interval = TRUE,
+              int.width = 0.80
+              )
+
+# api as moderator
+interact_plot(lm_interact, pred = popul_gov, modx = api_gov, interval = TRUE,
+              int.width = 0.80,
+              x.label = "Gov. Populism", y.label = "Independence (one year later)", legend.main = "Gov. Anti-pluralism"#,
+              #colors = "seagreen"
+              )
+
+
+# calculate mean and sd
+mean_api <- mean(df.cabinets.model.gov$api_gov)
+sd_api <- sd(df.cabinets.model.gov$api_gov)
+mean_popul <- mean(df.cabinets.model.gov$popul_gov)
+sd_popul <- sd(df.cabinets.model.gov$popul_gov)
+
+## slope plot
+# populism as moderator
+ss <- sim_slopes(lm_interact, pred = api_gov, modx = popul_gov, 
+                 modx.values = c(mean_popul-sd_popul, mean_popul, mean_popul+sd_popul)) # values based on mean popul_gov, +/ 1 SD
+plot(ss)
+# api as moderator
+ss <- sim_slopes(lm_interact, pred = popul_gov, modx = api_gov, 
+                 modx.values = c(0, mean_api, mean_api+sd_api))
+plot(ss)
+
+
+## Johnson-Neyman interval. 
+# This tells you all the values of the moderator for which the slope of the predictor will be statistically significant
+# populism
+johnson_neyman(lm_interact, pred = popul_gov, modx = api_gov, alpha = .05, title = "Johnson-Neyman plot (Cabinets)",
+  y.label = "Slope of Gov. Populism",
+  modx.label = "Anti-pluralism")
+# api
+johnson_neyman(lm_interact, pred = api_gov, modx = popul_gov, alpha = .05)
+
+```
+
+```{r cabinet model lead}
+
+# Gov only
+#df.cabinets.model.gov <- subset(df.cabinets.model, gov_parties == 1)
+
+# API model cabinet
+cabinetmodels_lead <- list("2-yr. lag FE"  = lm_robust(LJI_lead2 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "2-yr. lag FE, Int."  = lm_robust(LJI_lead2 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "1-yr. lag FE"  = lm_robust(LJI_lead1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "1-yr. lag FE, Int."  = lm_robust(LJI_lead1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "No lag FE"  = lm_robust(LJI ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "No lag FE, Int."  = lm_robust(LJI ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "*1-yr. lead FE"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "*1-yr. lead FE, Int."  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "2-yr. lead FE"  = lm_robust(LJI_lag2 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "2-yr. lead FE, Int."  = lm_robust(LJI_lag2 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "3-yr. lead FE"  = lm_robust(LJI_lag3 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "3-yr. lead FE, Int."  = lm_robust(LJI_lag3 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name))
+
+
+# In view format
+modelsummary(cabinetmodels_lead, 
+             coef_rename = cm,
+             title = 'Anti-Systemness, Populism, and Independence in Parliamentary Democracies',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'cabinet_model_lead.tex')
+
+# In .tex format
+modelsummary(cabinetmodels_lead, 
+             coef_rename = cm,
+             title = 'Anti-pluralism, Populism, and Independence in Parliamentary Democracies',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'table_replication.tex')
+
+```
+
+
+### Cabinets model, alternative LJI_vdem
+
+```{r cabinet model alt}
+
+# Gov only
+#df.cabinets.model.gov <- subset(df.cabinets.model, gov_parties == 1)
+
+# API model cabinet
+cabinetmodels_alt <- list("Naive"  = lm_robust(LJI_vdem_lag1 ~ api_gov + popul_gov,
+                                data = df.cabinets.model.gov),
+                       "Controls"  = lm_robust(LJI_vdem_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.cabinets.model.gov),
+                "FE"  = lm_robust(LJI_vdem_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "FE, Int."  = lm_robust(LJI_vdem_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name))
+
+
+# API plot models cabinet
+plotcabinetmodels_alt <- list("Controls (6A)"  = lm_robust(LJI_vdem_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.cabinets.model.gov),
+                "FE (7A)"  = lm_robust(LJI_vdem_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name),
+                "FE, Int. (8A)"  = lm_robust(LJI_vdem_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.gov, cluster = country_name))
+# FDI inflow no longer needed bc FDI most important for autocracies
+
+
+# In view format
+modelsummary(cabinetmodels_alt, 
+             coef_rename = cm,
+             title = 'Anti-Systemness, Populism, and Judicial independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'cabinet_model_alt.tex')
+
+# In .tex format
+modelsummary(cabinetmodels_alt, 
+             coef_rename = cm,
+             title = 'Anti-Systemness, Populism, and Judicial Independence in Parliamentary Systemce',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'table_replication.tex')
+
+
+##########################
+
+#new coefmap
+cm_plot <- c(
+        #"boix_democracy_duration_log" = "Years Democratic",
+        'log_e_gdppc' = 'Log GDP/Cap.',
+        'polconiii' = 'Competition', 
+        'api_gov' = 'Gov. Anti-Systemness',
+        'popul_gov' = 'Gov. Populism',
+        'popul_gov:api_gov' = 'Anti-systemness*Populism',
+        'api_gov:popul_gov' = 'Anti-systemness*Populism')
+
+modelplot(plotcabinetmodels_alt, size = 0.6, coef_omit = "as.factor|Intercept", coef_map = cm_plot)+
+  aes(shape = model) +
+  theme_bw() +
+  scale_color_manual(values = c("black", "black", "darkorange"))+
+  b
+
+```
+
+
+```{r cabinets opp}
+
+# Opp only
+df.cabinets.model.opp <- subset(df.cabinets.model, gov_parties == 0)
+
+# API model cabinet
+cabinetmodels_opp <- list("Naive"  = lm_robust(LJI_lag1 ~ api_gov + popul_gov,
+                                data = df.cabinets.model.opp),
+                       "Controls"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.cabinets.model.opp),
+                "FE"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.opp, cluster = country_name),
+                "FE, Int."  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.opp, cluster = country_name))
+
+
+# API plot models cabinet
+plotcabinetmodels_opp <- list("Controls (6)"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov + polconiii +  log_e_gdppc+ boix_democracy_duration_log,
+                                data = df.cabinets.model.opp),
+                "FE (7)"  = lm_robust(LJI_lag1 ~ api_gov+popul_gov + conserv_gov +polconiii +  log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.opp, cluster = country_name),
+                "FE, Int. (8)"  = lm_robust(LJI_lag1 ~ api_gov + conserv_gov + polconiii +popul_gov + api_gov*popul_gov + log_e_gdppc+ boix_democracy_duration_log + as.factor(country_name),
+                                data = df.cabinets.model.opp, cluster = country_name))
+# FDI inflow no longer needed bc FDI most important for autocracies
+
+
+# In view format
+modelsummary(cabinetmodels_opp, 
+             coef_rename = cm,
+             title = 'Anti-pluralism, Populism, and Judicial Independence in Parliamentary Democracies (Opposition)',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'cabinet_model_opp.tex')
+
+# In .tex format
+modelsummary(cabinetmodels_opp, 
+             coef_rename = cm,
+             title = 'Anti-Systemness, Populism, and Judicial Independence in Parliamentary Systems (Opposition)',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'table_replication.tex')
+
+
+##########################
+
+#new coefmap
+cm_plot <- c(
+        #"boix_democracy_duration_log" = "Years Democratic",
+        'log_e_gdppc' = 'Log GDP/Cap.',
+        'polconiii' = 'Competition', 
+        'api_gov' = 'Gov. Anti-Systemness',
+        'popul_gov' = 'Gov. Populism',
+        'popul_gov:api_gov' = 'Anti-systemness*Populism',
+        'api_gov:popul_gov' = 'Anti-systemness*Populism')
+
+modelplot(plotcabinetmodels_opp, size = 0.6, coef_omit = "as.factor|Intercept", coef_map = cm_plot)+
+  aes(shape = model) +
+  theme_bw() +
+  scale_color_manual(values = c("black", "black", "darkorange"))+
+  b
+
+```
+
+### Cabinets plot
+
+```{r plot cabinets}
+
+# mean values for lines
+# mean_api <- mean(df.model$api_gov)
+# mean_popul <- mean(df.model$popul_gov)
+
+# plot cabinets gov
+ggplot(data = df.cabinets.model.gov, mapping = aes(x = api_gov, y = popul_gov)) +
+  geom_point(alpha = ifelse(grepl("USA", df.cabinets.model.gov$cy), 1, 0.6), color = ifelse(grepl("USA", df.cabinets.model.gov$cy), "coral3", "cyan4"), shape = ifelse(grepl("USA", df.cabinets.model.gov$cy), 17, 16)) +
+  theme_bw() +
+  ylim(0,0.8) +
+  xlim(0.16,0.8) +
+  geom_text_repel(aes(label = cy),
+                  min.segment.length = 0,
+                  point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  geom_abline(slope=1, color = "darkgray") +
+  geom_vline(xintercept = mean_api) +
+  geom_hline(yintercept = mean_popul) +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(x = "Gov. Anti-pluralism", y = "Gov. Populism")
+
+
+## low anti-pluralism
+
+# plot cabinets gov
+ggplot(data = df.cabinets.model.gov, mapping = aes(x = api_gov, y = popul_gov)) +
+  geom_point(alpha = ifelse(grepl("USA", df.cabinets.model.gov$cy), 1, 0.6), color = ifelse(grepl("USA", df.cabinets.model.gov$cy), "coral3", "cyan4"), shape = ifelse(grepl("USA", df.cabinets.model.gov$cy), 17, 16)) +
+  theme_bw() +
+  ylim(0,0.8) +
+  xlim(0.16,mean_api) +
+  geom_text_repel(aes(label = cy),
+                  min.segment.length = 0,
+                  point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  geom_abline(slope=1, color = "darkgray") +
+  geom_vline(xintercept = mean_api) +
+  geom_hline(yintercept = mean_popul) +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(x = "Gov. Anti-pluralism", y = "Gov. Populism")
+
+
+
+```
+
+
+### Economic Conservatism and Extremism
+
+```{r conservatism models}
+
+# Extremism main models
+extremismmodels <- list("Naive"  = lm_robust(LJI_lag1 ~ conserv_gov,
+                                data = df.model),
+                "Controls"  = lm_robust(LJI_lag1 ~ conserv_gov + polconiii + log_e_gdppc + boix_democracy_duration_log,
+                                data = df.model),
+                "FE"  = lm_robust(LJI_lag1 ~ polconiii + conserv_gov + log_e_gdppc + boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "Naive"  = lm_robust(LJI_lag1 ~ extremism_gov,
+                                data = df.model),
+                "Controls"  = lm_robust(LJI_lag1 ~ extremism_gov + polconiii + log_e_gdppc + boix_democracy_duration_log,
+                                data = df.model),
+                 "FE"  = lm_robust(LJI_lag1 ~ polconiii + extremism_gov + log_e_gdppc + boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name))
+
+
+
+# In viewer format
+modelsummary(extremismmodels, 
+             coef_rename = cm,
+             title = 'Left-Right Economic Views and Judicial independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'conservatism_model.tex')
+
+# In viewer format
+modelsummary(extremismmodels, 
+             coef_rename = cm,
+             title = 'Left-Right Economic Views and Judicial Independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'conservatism_model.tex')
+                                
+```
+
+```{r conservatism models alt measure}
+
+# Extremism main models
+extremismmodels_alt <- list("Naive"  = lm_robust(LJI_vdem_lag1 ~ conserv_gov,
+                                data = df.model),
+                "Controls"  = lm_robust(LJI_vdem_lag1 ~ conserv_gov + polconiii + log_e_gdppc + boix_democracy_duration_log,
+                                data = df.model),
+                "FE"  = lm_robust(LJI_vdem_lag1 ~ polconiii + conserv_gov + log_e_gdppc + boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name),
+                "Naive"  = lm_robust(LJI_vdem_lag1 ~ extremism_gov,
+                                data = df.model),
+                "Controls"  = lm_robust(LJI_vdem_lag1 ~ extremism_gov + polconiii + log_e_gdppc + boix_democracy_duration_log,
+                                data = df.model),
+                 "FE"  = lm_robust(LJI_vdem_lag1 ~ polconiii + extremism_gov + log_e_gdppc + boix_democracy_duration_log + as.factor(country_name),
+                                data = df.model, cluster = country_name))
+
+
+
+# In viewer format
+modelsummary(extremismmodels_alt, 
+             coef_rename = cm,
+             title = 'Left-Right Economic Views and Judicial independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ))#,
+             #output = 'conservatism_model_alt.tex')
+
+# In viewer format
+modelsummary(extremismmodels_alt, 
+             coef_rename = cm,
+             title = 'Left-Right Economic Views and Judicial Independence',
+             stars = TRUE,
+             coef_omit = "as.factor|Intercept",
+             gof_map = c("nobs", "r.squared", "adj.r.squared" ),
+             output = 'conservatism_model_alt.tex')
+                                
+```    

@@ -1,0 +1,1185 @@
+---
+title: "ideology_independence_data"
+author: "Alice Timken"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# -------------- Packages -------------------------------
+## First specify the packages of interest
+packages <- c("stats", "graphics", "Hmisc", "ggplot2","randomizr", 
+              "lmtest", "sandwich", "rmarkdown", "dagitty", "devtools", 
+              "knitr", "haven", "estimatr", "rdrobust" , "labelled",
+              "expss", "dplyr", "xtable", "poliscidata", "plm",
+              "optimx", "margins", "glm2", "naniar", "TSstudio", "gmodels")
+## Now load or install&load all
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+```
+
+
+# V-party data
+
+### Load V-party data
+
+```{r vparty}
+vparty <- read.csv("/Users/alice/Desktop/PhD Program/Summer 2024/EITM/Model/vparty/V_Party.csv")
+
+# explore vparty data
+# years
+describe(vparty$year) # min 1900, max 2019
+describe(vparty$year[vparty$v2xpa_antiplural != 'NA']) # min 1965, max 2019
+# antipluralism
+summary(vparty$v2xpa_antiplural) # 5593 NAs of 11898 total obs
+summary(vparty$year[vparty$v2xpa_antiplural != '']) # earliest year of API is 1965
+describe(vparty$v2xpa_antiplural[vparty$year >= 1965]) # after 1965, 1621 NAs of 6305 total obs
+unique(vparty$country_text_id)
+
+# create country-year-party identifier (country+year+party)
+vparty$id <- paste(vparty$country_text_id, vparty$year, vparty$v2pashname)
+
+# create country-year identifier (country+year)
+vparty$cy <- paste(vparty$country_text_id, vparty$year)
+
+# create country-year identifier (country+year)
+vparty$cy2 <- paste(vparty$country_name, vparty$year)
+
+## Name regional categories - Region (politico-geographic) 
+#1: Eastern Europe and post Soviet Union (including Central Asia, Mongolia, and German Democratic Republic)
+#2: Latin America (including Cuba, Haiti, and the Dominican Republic)
+#3: North Africa and the Middle East (including Israel and Türkiye, but excluding Cyprus)
+#4: Sub–Saharan Africa
+#5: Western Europe and North America (including Australia, New Zealand, and Cyprus, but excluding German Democratic Republic)
+#6: Eastern Asia (including Japan, excluding Mongolia)
+#7: South–Eastern Asia
+#8: Southern Asia
+#9: The Pacific (excluding Australia and New Zealand)
+#10: The Caribbean (including Guyana and Suriname, but excluding Cuba, Haiti, and theDominican Republic)
+
+```
+
+### Calculate ideology weights
+
+```{r api weight}
+
+# Spot fix data before calculating API weight
+# Brazil
+vparty$v2paseatshare[vparty$id == 'BRA 1982 PDS'] <- 43.22 # Brazil Democratic Social Party, 1982
+vparty$v2paseatshare[vparty$id == 'BRA 1986 PDS'] <- 7.89 # Brazil Democratic Social Party, 1986
+vparty$v2paseatshare[vparty$id == 'BRA 1990 PDS'] <- 8.91 # Brazil Democratic Social Party, 1990
+# vparty$v2paseatshare[vparty$id == 'BRA 1990 PRN'] <- 8.29 # Brazil National Reconstruction Party / Christian Labour Party, 1990
+
+print(vparty$v2xpa_antiplural[vparty$id == 'BRA 1990 PDS'] * vparty$v2paseatshare[vparty$id == 'BRA 1990 PDS'] *0.01 )
+
+
+# create api_weight variable for aggregation; multiplied by 0.01 since seat share variable is in percentage ex. 20% -> 0.2
+vparty$api_weight <- vparty$v2xpa_antiplural*vparty$v2paseatshare*0.01
+
+# create popul_weight variable for aggregation; multiplied by 0.01 since seat share variable is in percentage ex. 20% -> 0.2
+vparty$popul_weight <- vparty$v2xpa_popul*vparty$v2paseatshare*0.01
+
+# create conserv_weight variable for aggregation; multiplied by 0.01 since seat share variable is in percentage ex. 20% -> 0.2
+vparty$conserv_weight <- vparty$v2pariglef*vparty$v2paseatshare*0.01
+
+# create extremism_weight variable for aggregation; multiplied by 0.01 since seat share variable is in percentage ex. 20% -> 0.2
+vparty$extremism_weight <- (abs(vparty$v2pariglef))*vparty$v2paseatshare*0.01
+
+library(ggrepel)
+
+```
+
+### Calculate government ideology scores (from V-Party)
+
+Use aggregate() command by country and year, sum weighted scores.
+
+```{r transform vparty}
+### transform data, API
+df1 <- aggregate(vparty$api_weight, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df1)[names(df1) == 'Group.1'] <- 'country_name'
+names(df1)[names(df1) == 'Group.2'] <- 'year'
+names(df1)[names(df1) == 'x'] <- 'api_gov'
+
+# describe
+describe(df1$api_gov)
+
+# coutry year match id
+df1$cy2 <- paste(df1$country_name, df1$year)
+
+### transform data, Populism
+df2 <- aggregate(vparty$popul_weight, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df2)[names(df2) == 'Group.1'] <- 'country_name'
+names(df2)[names(df2) == 'Group.2'] <- 'year'
+names(df2)[names(df2) == 'x'] <- 'popul_gov'
+
+# describe
+describe(df2$popul_gov)
+
+# coutry year match id
+df2$cy2 <- paste(df2$country_name, df2$year)
+
+
+### transform data, Left Right
+df2a <- aggregate(vparty$conserv_weight, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df2a)[names(df2a) == 'Group.1'] <- 'country_name'
+names(df2a)[names(df2a) == 'Group.2'] <- 'year'
+names(df2a)[names(df2a) == 'x'] <- 'conserv_gov'
+
+# describe
+describe(df2a$conserv_gov)
+
+# coutry year match id
+df2a$cy2 <- paste(df2a$country_name, df2a$year)
+
+
+
+### transform data, Extremism
+df2b <- aggregate(vparty$extremism_weight, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df2b)[names(df2b) == 'Group.1'] <- 'country_name'
+names(df2b)[names(df2b) == 'Group.2'] <- 'year'
+names(df2b)[names(df2b) == 'x'] <- 'extremism_gov'
+
+# describe
+describe(df2b$extremism_gov)
+
+# coutry year match id
+df2b$cy2 <- paste(df2b$country_name, df2b$year)
+
+
+### transform data, seat share
+df3 <- aggregate(vparty$v2paseatshare, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df3)[names(df3) == 'Group.1'] <- 'country_name'
+names(df3)[names(df3) == 'Group.2'] <- 'year'
+names(df3)[names(df3) == 'x'] <- 'v2paseatshare'
+
+# describe
+describe(df3$v2paseatshare)
+
+# coutry year match id
+df3$cy2 <- paste(df3$country_name, df3$year)
+
+df3.check <- subset(df3, year >= 1965 & year <= 2019 & v2paseatshare <= 85)
+
+```
+
+### Combine scores into one dataset
+
+```{r populate country level data}
+# V-Party
+# popul_gov, df2
+df1$popul_gov <- df2$popul_gov[match(df1$cy2, df2$cy2)]
+# conserv_gov, df2a
+df1$conserv_gov <- df2a$conserv_gov[match(df1$cy2, df2a$cy2)]
+# extremism_gov, df2b
+df1$extremism_gov <- df2b$extremism_gov[match(df1$cy2, df2b$cy2)]
+# seatshare, df3
+df1$seatshare_gov <- df3$v2paseatshare[match(df1$cy2, df3$cy2)]
+
+df.gov_scores <- df1
+
+df1 <- subset(df1, !(api_gov == 0.0 & popul_gov == 0.0 & conserv_gov == 0.0))
+
+```
+
+
+## Load Judicial Independence Data (Linzer and Staton 2015)
+
+Staton, Jeffrey; Linzer, Drew; Reenock, Christopher; Holsinger, Jordan, 2019, "Update, A Global Measure of Judicial Independence, 1900-2015", https://doi.org/10.7910/DVN/NFXWUO, Harvard Dataverse, V1.
+
+Available as RData file at: https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/NFXWUO.
+
+```{r LJI data}
+### Load data -----------------------------------------
+
+## Load independence data
+load("~/Desktop/PhD Program/Spring 2024/Large N Judicial Independence Paper/Data/Linzer_Staton/LJI-estimates-20170321.Rdata")
+linzerstaton_orig <- x
+
+## Load independence data
+load("~/Desktop/PhD Program/Spring 2024/Large N Judicial Independence Paper/Data/Linzer_Staton/LJI-estimates-20181210[includesVdem].Rdata")
+linzerstaton <- x
+
+# create country-year identifier (country+year)
+linzerstaton$cy <- paste(linzerstaton$country, linzerstaton$year)
+# create country-year identifier (country+year), long
+linzerstaton_orig$cy <- paste(linzerstaton_orig$country, linzerstaton_orig$year)
+
+# Country corrections
+linzerstaton$country_fix <- linzerstaton$country
+linzerstaton$country_fix[linzerstaton$country == 'Gambia'] <- 'The Gambia'
+linzerstaton$country_fix[linzerstaton$country == 'Myanmar'] <- 'Burma/Myanmar'
+linzerstaton$country_fix[linzerstaton$country == 'Macedonia'] <- 'North Macedonia'
+linzerstaton$country_fix[linzerstaton$country == 'Congo'] <- 'Republic of the Congo'
+linzerstaton$country_fix[linzerstaton$country == 'East Timor'] <- 'Timor-Leste'
+linzerstaton$country_fix[linzerstaton$country == 'Germany' & linzerstaton$year <= 1988] <- 'Germany Alt.'
+linzerstaton$country_fix[linzerstaton$country == 'German Federal Republic' & linzerstaton$year <= 1988] <- 'Germany'
+
+### Rename LJI variables
+
+linzerstaton$LJI_vdem <- linzerstaton$LJI
+
+#### Match
+
+# Match Vdem and Linzer Staton
+# LJI
+linzerstaton$LJI <- linzerstaton_orig$LJI[match(linzerstaton$cy, linzerstaton_orig$cy)]
+
+# Summarize years
+summary(linzerstaton$year) # 1900 min, max 2015
+
+# new lagged LJI variable
+
+# Lag variable using fixest package: https://lrberge.github.io/fixest/reference/lag.formula.html
+library(fixest)
+linzerstaton$LJI_lag3 <- lag_fml(LJI ~ country + year, k = -3, linzerstaton)
+linzerstaton$LJI_lag2 <- lag_fml(LJI ~ country + year, k = -2, linzerstaton)
+linzerstaton$LJI_lag1 <- lag_fml(LJI ~ country + year, k = -1, linzerstaton)
+linzerstaton$LJI_lead1 <- lag_fml(LJI ~ country + year, k = 1, linzerstaton)
+linzerstaton$LJI_lead2 <- lag_fml(LJI ~ country + year, k = 2, linzerstaton)
+# vdem
+linzerstaton$LJI_vdem_lag3 <- lag_fml(LJI_vdem ~ country + year, k = -3, linzerstaton)
+linzerstaton$LJI_vdem_lag2 <- lag_fml(LJI_vdem ~ country + year, k = -2, linzerstaton)
+linzerstaton$LJI_vdem_lag1 <- lag_fml(LJI_vdem ~ country + year, k = -1, linzerstaton)
+linzerstaton$LJI_vdem_lead1 <- lag_fml(LJI_vdem ~ country + year, k = 1, linzerstaton)
+linzerstaton$LJI_vdem_lead2 <- lag_fml(LJI_vdem ~ country + year, k = 2, linzerstaton)
+
+# create country-year identifier (country+year)
+linzerstaton$cy <- paste(linzerstaton$state_abb, linzerstaton$year)
+# create country-year identifier (country+year), long
+linzerstaton$cy2 <- paste(linzerstaton$country_fix, linzerstaton$year)
+
+```
+
+
+## Load Political Constraints (Competition) Data (Henisz 2002)
+
+Henisz, W. J. (2002). "The Institutional Environment for Infrastructure Investment." Industrial
+and Corporate Change 11(2): Forthcoming.
+
+Available as Excel file at: https://mgmt.wharton.upenn.edu/faculty/heniszpolcon/polcondataset/
+
+```{r Henisz data}
+### Load data -----------------------------------------
+
+## Load independence data
+polcon <- read.csv("~/Desktop/PhD Program/Fall 2024/Quantitative Model/POLCON_2021_VDEM.csv")
+
+# Rename countries abbreviations
+polcon$polity_country_fix <- polcon$polity_country
+polcon$polity_country_fix[polcon$ctrynm == 'MLT'] <- 'Malta' # Malta
+polcon$polity_country_fix[polcon$ctrynm == 'SLV'] <- 'Slovenia'
+polcon$polity_country_fix[polcon$polity_country == 'Germany West'] <- 'Germany'
+polcon$polity_country_fix[polcon$polity_country == 'United States'] <- 'United States of America'
+polcon$polity_country_fix[polcon$cnts_country == 'SURINAME'] <- 'Suriname'
+polcon$polity_country_fix[polcon$polity_country == 'Czechoslovakia'] <- 'Czech Republic'
+polcon$polity_country_fix[polcon$polity_country == 'Myanmar (Burma)'] <- 'Burma/Myanmar'
+polcon$polity_country_fix[polcon$polity_country == 'USSR' & polcon$year <= 1989] <- 'Russia'
+polcon$polity_country_fix[polcon$polity_country == 'Korea, South'] <- 'South Korea'
+polcon$polity_country_fix[polcon$polity_country == 'Korea, North'] <- 'North Korea'
+polcon$polity_country_fix[polcon$polity_country == 'EAST TIMOR'] <- 'Timor-Leste'
+polcon$polity_country_fix[polcon$polity_country == 'KOSOVO'] <- 'Kosovo'
+polcon$polity_country_fix[polcon$cnts_country == 'C VERDE IS'] <- 'Cape Verde'
+polcon$polity_country_fix[polcon$polity_country == 'Cen African Rep'] <- 'Central African Republic'
+polcon$polity_country_fix[polcon$cnts_country == 'MALDIVE IS'] <- 'Maldives'
+polcon$polity_country_fix[polcon$cnts_country == 'C VERDE IS'] <- 'Cape Verde'
+polcon$polity_country_fix[polcon$polity_country == 'Congo, Kinshasa'] <- 'Democratic Republic of the Congo'
+polcon$polity_country_fix[polcon$polity_country == 'Congo, Brazzaville'] <- 'Republic of the Congo'
+polcon$polity_country_fix[polcon$polity_country == 'Dominican Rep'] <- 'Dominican Republic'
+polcon$polity_country_fix[polcon$polity_country == 'Gambia'] <- 'The Gambia'
+polcon$polity_country_fix[polcon$polity_country == 'Trinidad'] <- 'Trinidad and Tobago'
+polcon$polity_country_fix[polcon$polity_country == 'Germany East'] <- 'German Democratic Republic'
+polcon$polity_country_fix[polcon$polity_country == 'Trinidad'] <- 'Trinidad and Tobago'
+polcon$polity_country_fix[polcon$cnts_country == 'BARBADOS'] <- 'Barbados'
+polcon$polity_country_fix[polcon$polity_country == 'Bosnia'] <- 'Bosnia and Herzegovina'
+polcon$polity_country_fix[polcon$polity_country == 'Macedonia'] <- 'North Macedonia'
+polcon$polity_country_fix[polcon$cnts_country == 'MONTENEGRO'] <- 'Montenegro'
+polcon$polity_country_fix[polcon$cnts_country == 'VANUATU'] <- 'Vanuatu'
+polcon$polity_country_fix[polcon$polity_country == 'UAE'] <- 'United Arab Emirates'
+polcon$polity_country_fix[polcon$cnts_country == 'SOLOMON IS'] <- 'Solomon Islands'
+polcon$polity_country_fix[polcon$cnts_country == 'SEYCHELLSS'] <- 'Seychelles'
+polcon$polity_country_fix[polcon$cnts_country == 'SAO TOME/PR'] <- 'Sao Tome and Principe'
+polcon$polity_country_fix[polcon$cnts_country == 'MONTENEGRO'] <- 'Montenegro'
+polcon$polity_country_fix[polcon$cnts_country == 'SAO TOMEEPR'] <- 'Sao Tome and Principe'
+
+
+# create country-year identifier (country+year)
+polcon$cy <- paste(polcon$ctrynm, polcon$year)
+# create country-year identifier (country+year), long
+polcon$cy2 <- paste(polcon$polity_country_fix, polcon$year)
+# Count countries
+unique(polcon$polity_country_fix)
+
+# PolConiii variable
+# summary of judicial independence and year variables (xconst, year)
+summary(polcon$polconiii) # 1378 NAs
+summary(polcon$POLCONIII_VDEM) # 224 NAs
+# View years
+summary(polcon$year) # min 1800 max 2021
+
+
+```
+
+
+# Cabinet data
+
+### Load Parlgov cabinet data
+
+```{r parlgov cabinet}
+###############################################
+
+cabinets <- read.csv("/Users/alice/Desktop/PhD Program/Summer 2024/EITM/Model/parlgov/parlgov-cabinet.csv")
+
+class(cabinets$election_year)
+summary(cabinets$cabinet_party) # no missing, 31.8% cabinet parties
+
+# create variable that matches party abbrev. from v-party data (v2pashname)
+cabinets$seat_share <- (cabinets$seats / cabinets$election_seats_total)
+
+# create variable that matches party abbrev. from v-party data (v2pashname)
+cabinets$v2pashname <- cabinets$party_name_short
+
+```
+
+### Fix party names
+
+```{r parl party names}
+
+# reconcile different party abbreviations
+cabinets$v2pashname[cabinets$country_name == 'Australia' & cabinets$v2pashname == 'NCP|NPA'] <- 'ACP-NPA' # Australian Country Party / National Party
+cabinets$v2pashname[cabinets$country_name == 'Austria' & cabinets$v2pashname == 'Gruene'] <- 'GRUENE'
+# Belgium
+cabinets$v2pashname[cabinets$country_name == 'Belgium' & cabinets$v2pashname == 'CVP|CD&V'] <- 'CVP' # Christian People's
+cabinets$v2pashname[cabinets$country_name == 'Belgium' & cabinets$v2pashname == 'PSC-CDH'] <- 'PSC' # Christian democratic/Humanist
+cabinets$v2pashname[cabinets$country_name == 'Belgium' & cabinets$v2pashname == 'PVV|VLD'] <- 'PVV-OVLD'
+cabinets$v2pashname[cabinets$country_name == 'Belgium' & cabinets$v2pashname == 'SP'] <- 'SPA' #Socialist party differently
+cabinets$v2pashname[cabinets$country_name == 'Belgium' & cabinets$v2pashname == 'SPa+Spi'] <- 'SPA/Spirit' #Socialist-Spirit
+cabinets$v2pashname[cabinets$country_name == 'Belgium' & cabinets$v2pashname == 'CD+NVA'] <- 'CD&V/N-VA' #Christian-Democrat and Flemish / New Flemish Alliance
+# Bulgaria
+cabinets$v2pashname[cabinets$country_name == 'Bulgaria' & cabinets$v2pashname == 'SK'] <- 'BC' # Blue Coalition
+cabinets$v2pashname[cabinets$country_name == 'Bulgaria' & cabinets$v2pashname == 'KzB|DL'] <- 'KzB/BSP' #Coalition for Bulgaria | Democratic Left
+cabinets$v2pashname[cabinets$country_name == 'Bulgaria' & cabinets$v2pashname == 'DSB|DB'] <- 'DSB' #Democrats for a Strong Bulgaria
+cabinets$v2pashname[cabinets$country_name == 'Bulgaria' & cabinets$v2pashname == 'BE'] <- 'BEL' #Bulgarian Euro-Left Coalition
+cabinets$v2pashname[cabinets$country_name == 'Bulgaria' & cabinets$v2pashname == 'DPS' & cabinets$election_year != 1991] <- 'ONS' #Union for National Salvation
+cabinets$v2pashname[cabinets$country_name == 'Bulgaria' & cabinets$v2pashname == 'Ataka'] <- 'ATA' # National Union Attack / Attack
+
+# Canada
+cabinets$v2pashname[cabinets$country_name == 'Canada' & cabinets$v2pashname == 'CCF|NDP'] <- 'NDP' #Co-operative Commonwealth Federation | New Democratic Party
+
+# Switzerland
+cabinets$v2pashname[cabinets$country_name == 'Switzerland' & cabinets$v2pashname == 'SP-PS'] <- 'SP' #Social Democratic Party of Switzerland
+cabinets$v2pashname[cabinets$country_name == 'Switzerland' & cabinets$v2pashname == 'FDP-PRD'] <- 'FDP' #Radical Democratic Party
+cabinets$v2pashname[cabinets$country_name == 'Switzerland' & cabinets$v2pashname == 'SVP-UDC'] <- 'SVP' #Swiss People's Party
+
+# Croatia
+cabinets$v2pashname[cabinets$country_name == 'Croatia' & cabinets$v2pashname == 'HNS-LD'] <- 'HNS' #Croatian People's Party -- Liberal Democrats
+cabinets$v2pashname[cabinets$country_name == 'Croatia' & cabinets$v2pashname == 'SPH'] <- 'SDP' #Social Democratic Party
+cabinets$v2pashname[cabinets$country_name == 'Croatia' & cabinets$v2pashname == 'HDZ' & cabinets$election_year == 2016] <- 'HDZ Coalition' # alliance: HDZ Coalition
+cabinets$v2pashname[cabinets$country_name == 'Croatia' & cabinets$v2pashname == 'HL-LR'] <- 'CL-LP' # Croatian Labourists -- Labour Party
+
+# Czech Republic
+cabinets$v2pashname[cabinets$country_name == 'Czech Republic' & cabinets$v2pashname == 'KDU-CSL'] <- 'KDU/CSL' #Christian Democratic Union -- People's Party
+cabinets$v2pashname[cabinets$country_name == 'Czech Republic' & cabinets$v2pashname == 'HSD-SMS'] <- 'HSD/SMS' #Movement for Self-Gov. Dem./Moravia Salesia
+cabinets$v2pashname[cabinets$country_name == 'Czech Republic' & cabinets$v2pashname == 'US'] <- 'US/DEU' #Freedom Union
+cabinets$v2pashname[cabinets$country_name == 'Czech Republic' & cabinets$v2pashname == 'STAN'] <- 'SN-VA' # Mayors and Independents
+
+# Denmark
+cabinets$v2pashname[cabinets$country_name == 'Denmark' & cabinets$v2pashname == 'Sd'] <- 'SD' #	Social dems
+cabinets$v2pashname[cabinets$country_name == 'Denmark' & cabinets$v2pashname == 'KrF'] <- 'KrF/KD' # Christian People's Party / Christian Democrats
+cabinets$v2pashname[cabinets$country_name == 'Denmark' & cabinets$v2pashname == 'NLA'] <- 'LA' #	[New] Liberal Alliance
+cabinets$v2pashname[cabinets$country_name == 'Denmark' & cabinets$v2pashname == 'En-O'] <- 'Enh' #	Red-Green Alliance
+
+# Germany
+cabinets$v2pashname[cabinets$country_name == 'Germany' & cabinets$v2pashname == 'CDU+CSU'] <- 'CDU' #	Christian Democratic Union / Christian Social Union ** note separate V-Party API values for CDU, CSU
+#cabinets$v2pashname[cabinets$country_name == 'Germany' & cabinets$party_name_short == 'CDU+CSU'] <- 'CDU' #	Christian Democratic Union / Christian Social Union ** note separate V-Party API values for CDU, CSU
+cabinets$v2pashname[cabinets$country_name == 'Germany' & cabinets$v2pashname == 'B90/Gru' & cabinets$election_year <= 1987] <- 'Grue' #	Alliance 90 / Greens / Grue
+cabinets$v2pashname[cabinets$country_name == 'Germany' & cabinets$v2pashname == 'B90/Gru' & cabinets$election_year >= 1994] <- 'B90/Grue' #	Alliance 90 / Greens / Grue
+cabinets$v2pashname[cabinets$country_name == 'Germany' & cabinets$v2pashname == 'PDS|Li' & cabinets$election_year <= 2005] <- 'PDS' #	PDS | The Left / Party for Democratic Socialism
+cabinets$v2pashname[cabinets$country_name == 'Germany' & cabinets$v2pashname == 'PDS|Li' & cabinets$election_year >= 2009] <- 'Linke' #	PDS | The Left / The Left
+
+# Spain
+cabinets$v2pashname[cabinets$country_name == 'Spain' & cabinets$v2pashname == 'AP-P'] <- 'AP / PP' # People's Alliance-Party / People's Party
+cabinets$v2pashname[cabinets$country_name == 'Spain' & cabinets$v2pashname == 'P'] <- 'PODEMOS' # We Can
+cabinets$v2pashname[cabinets$country_name == 'Spain' & cabinets$v2pashname == 'UP'] <- 'UWC' # United We Can
+cabinets$v2pashname[cabinets$country_name == 'Spain' & cabinets$v2pashname == 'PCE|IU'] <- 'PCE/IU' # Communist Party / United Left
+
+# Estonia
+cabinets$v2pashname[cabinets$country_name == 'Estonia' & cabinets$v2pashname == 'SDE|M'] <- 'SDE-M' # Social Democratic Party | Moderates
+cabinets$v2pashname[cabinets$country_name == 'Estonia' & cabinets$v2pashname == 'EM'] <- 'EME' # Estonian Country Union
+cabinets$v2pashname[cabinets$country_name == 'Estonia' & cabinets$v2pashname == 'ERa/EKR' & cabinets$election_year <= 2015] <- 'ERa' # People's Union of Estonia
+cabinets$v2pashname[cabinets$country_name == 'Estonia' & cabinets$v2pashname == 'ERa/EKR' & cabinets$election_year >= 2019] <- 'ER' # People's Union of Estonia / Estonian People's Party
+cabinets$v2pashname[cabinets$country_name == 'Estonia' & cabinets$v2pashname == 'IRL'] <- 'I' # Union of Pro Patria and Res Publica
+
+# Finland
+cabinets$v2pashname[cabinets$country_name == 'Finland' & cabinets$v2pashname == 'DL|VAS' & cabinets$election_year <= 1989] <- 'SKDL' # Democratic Union | Left Alliance / Finish People's Democratic Union
+cabinets$v2pashname[cabinets$country_name == 'Finland' & cabinets$v2pashname == 'DL|VAS' & cabinets$election_year >= 1990] <- 'VAS' # Democratic Union | Left Alliance / Left Alliance
+cabinets$v2pashname[cabinets$country_name == 'Finland' & cabinets$v2pashname == 'KE|SLK'] <- 'L' # National Progressive Party | [Finnish] Liberal People's Party
+cabinets$v2pashname[cabinets$country_name == 'Finland' & cabinets$v2pashname == 'RKP-SFP'] <- 'RKP' # Swedish People's Party
+cabinets$v2pashname[cabinets$country_name == 'Finland' & cabinets$v2pashname == 'SP|P'] <- 'SP / P' # Finnish / True Finns
+cabinets$v2pashname[cabinets$country_name == 'Finland' & cabinets$party_name_short == 'SP|P' & cabinets$election_year >= 1970 & cabinets$election_year <= 1987] <- 'SMP' # Finnish Rural Party / True Finns
+
+# France
+cabinets$v2pashname[cabinets$country_name == 'France' & cabinets$v2pashname == 'IR|DL'] <- 'RI' # Independent Republicans | Liberal Democracy
+cabinets$v2pashname[cabinets$country_name == 'France' & cabinets$v2pashname == 'G' & cabinets$election_year <= 1976] <- 'UDR' # Gaullists / UDR (1968-1976)
+cabinets$v2pashname[cabinets$country_name == 'France' & cabinets$v2pashname == 'UDF|MD'] <- 'UDF' # Union for French Democracy | Democratic Movement
+cabinets$v2pashname[cabinets$country_name == 'France' & cabinets$v2pashname == 'UMP|LR'] <- 'UMP' # Union for a Popular Movement / The Republicans
+cabinets$v2pashname[cabinets$country_name == 'France' & cabinets$v2pashname == 'REM'] <- 'LaREM' # The Republic Onwards!
+
+# Greece
+cabinets$v2pashname[cabinets$country_name == 'Greece' & cabinets$v2pashname == 'LS-CA'] <- 'LS/CA' # Peoples Association -- Golden Dawn
+
+# Hungary
+cabinets$v2pashname[cabinets$country_name == 'Hungary' & cabinets$v2pashname == 'Fi-MPSz'] <- 'Fidesz' # Fidesz
+
+# Ireland
+cabinets$v2pashname[cabinets$country_name == 'Ireland' & cabinets$v2pashname == 'IA'] <- 'indep' # Independent Alliance
+cabinets$v2pashname[cabinets$country_name == 'Ireland' & cabinets$v2pashname == 'SFWP'] <- 'WP' # Sinn Fein The Workers' Party
+
+# Iceland
+cabinets$v2pashname[cabinets$country_name == 'Iceland' & cabinets$v2pashname == 'Bf-87'] <- 'Bf' # 1987 party
+cabinets$v2pashname[cabinets$country_name == 'Iceland' & cabinets$v2pashname == 'KL'] <- 'Sk' # Womens Alliance
+cabinets$v2pashname[cabinets$country_name == 'Iceland' & cabinets$v2pashname == 'B-H'] <- 'B' # Citizens' Movement / Civic Movement -- The Movement
+cabinets$v2pashname[cabinets$country_name == 'Iceland' & cabinets$v2pashname == 'M'] <- 'CP' # Centre Party
+
+# Israel
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'MDL|HH'] <- 'Mafdal' # National Religious Party | The Jewish Home
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'Ma|Av'] <- 'A' # Alignment | Labor
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'TDL'] <- 'DASH' # Democratic Movement for Change
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'Shas'] <- 'SHAS' # Sephardi Guardians
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'YBA'] <- 'YB' # Israel for Immigration
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'MiHa'] <- 'MiHam / CP' # Centre Party
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'HaLe-T'] <- 'HH' # National Union--Tkuma
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'YA'] <- 'Yesh' # There is a Future
+cabinets$v2pashname[cabinets$country_name == 'Israel' & cabinets$v2pashname == 'YaToMe'] <- 'YH' # United Torah Judaism
+
+# Italy
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$party_name_short == 'FI-PdL' & cabinets$election_year <= 2007] <- 'FI' # Go Italy
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$party_name_short == 'FI-PdL' & cabinets$election_year >= 2008] <- 'IPdL' # People of Freedom
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$party_name_short == 'FI-PdL' & cabinets$election_year >= 2018] <- 'FI' # People of Freedom
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$v2pashname == 'DINI-RI'] <- 'RiI' # Italian Renewal
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$v2pashname == 'DS' & cabinets$election_year <= 1997] <- 'PDS' # Democratic Party of the Left (PDS) / Democrats of the Left
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$v2pashname == 'CCD+CDU'] <- 'CCD/CDU' # Christian Democratic Centre / United Christian
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$v2pashname == 'CeS'] <- 'Ulivo' # The Olive Tree / Centre Left
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$v2pashname == 'UC' & cabinets$election_year <= 2008] <- 'UDC' # Union / Centre
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$v2pashname == 'UC' & cabinets$election_year == 2013] <- 'UdC' # Union of the Centre - Union / Centre
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$v2pashname == 'R' & cabinets$election_year == 2006] <- 'RnP' # Rose in the Fist / Radicals
+cabinets$v2pashname[cabinets$country_name == 'Italy' & cabinets$v2pashname == 'S' & cabinets$election_year == 2013] <- 'SEL' # Rose in the Fist / Italian Left (Sinistra Italiana, SI)
+
+# Japan
+cabinets$v2pashname[cabinets$country_name == 'Japan' & cabinets$v2pashname == 'JSP'] <- 'JSP/SDP' # Japan Socialist Party
+cabinets$v2pashname[cabinets$country_name == 'Japan' & cabinets$v2pashname == 'TPJ'] <- 'PPLF' # Tomorrow Party of Japan / People First Party
+cabinets$v2pashname[cabinets$country_name == 'Japan' & cabinets$v2pashname == 'CDP'] <- 'KDP' # Constitutional Democratic Party
+# Latvia
+cabinets$v2pashname[cabinets$country_name == 'Latvia' & cabinets$v2pashname == 'S'] <- 'SC' # Harmony
+cabinets$v2pashname[cabinets$country_name == 'Latvia' & cabinets$v2pashname == 'PLL'] <- 'LPP/LC' # Latvian First Party / Latvian Way Party
+
+# Lithuania
+cabinets$v2pashname[cabinets$country_name == 'Lithuania' & cabinets$v2pashname == 'TS-LK'] <- 'TS-LKD' # Homeland Union
+cabinets$v2pashname[cabinets$country_name == 'Lithuania' & cabinets$v2pashname == 'NS-SL'] <- 'NS' # New Union (Social Liberals)
+cabinets$v2pashname[cabinets$country_name == 'Lithuania' & cabinets$v2pashname == 'LSDDP'] <- 'NS' # Social Democratic Labour Party of Lithuania
+cabinets$v2pashname[cabinets$country_name == 'Lithuania' & cabinets$v2pashname == 'LSDP-89'] <- 'LSDP' # Lithuanian Social Democratic Party / 1989
+
+# Luxembourg
+cabinets$v2pashname[cabinets$country_name == 'Luxembourg' & cabinets$v2pashname == 'Greng'] <- 'Greng/GAP' # Greens
+cabinets$v2pashname[cabinets$country_name == 'Luxembourg' & cabinets$v2pashname == 'AR|ADR'] <- 'AR/ADR' # Action Committee Pensions | Alternative Democratic Reform Party
+
+# Latvia
+cabinets$v2pashname[cabinets$country_name == 'Latvia' & cabinets$v2pashname == 'PS'] <- 'PS' # Civic Union - data missing
+cabinets$v2pashname[cabinets$country_name == 'Latvia' & cabinets$v2pashname == 'RP' & cabinets$election_year <= 2012] <- 'ZRP' # Zatlers' Reform Party
+cabinets$v2pashname[cabinets$country_name == 'Latvia' & cabinets$v2pashname == 'KPV-LV'] <- 'KPV LV' # Who owns the state
+cabinets$v2pashname[cabinets$country_name == 'Latvia' & cabinets$v2pashname == 'LA' & cabinets$election_year == 2018] <- 'Development/...' # alliance: Development/For!
+
+# Malta
+cabinets$v2pashname[cabinets$country_name == 'Malta' & cabinets$v2pashname == 'PL'] <- 'MLP' # Malta Labour Party
+
+# New Zealand
+cabinets$v2pashname[cabinets$country_name == 'New Zealand' & cabinets$v2pashname == 'SC|DP'] <- 'SC/DP' # Social Credit | Democratic Party
+
+# Norway
+cabinets$v2pashname[cabinets$country_name == 'Norway' & cabinets$v2pashname == 'Sp'] <- 'Sp/Bp' # Centre [Agrarian] Party
+
+# Poland
+cabinets$v2pashname[cabinets$country_name == 'Poland' & cabinets$v2pashname == 'D|W|U'] <- 'UW-PD' # Freedom Union -- Democratic Party / Democratic | Freedom | Union
+cabinets$v2pashname[cabinets$country_name == 'Poland' & cabinets$v2pashname == 'SLD' & cabinets$election_year == 2007] <- 'LiD' # SLD+SdPl+PD+UP – Lewica i Demokraci; SLD was largest party and vote-getter in coalition
+cabinets$v2pashname[cabinets$country_name == 'Poland' & cabinets$v2pashname == 'WIO' & cabinets$election_year == 2019] <- 'Spr' # Spring party
+
+# Portugal
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$v2pashname == 'PSD'] <- 'PPD/PSD' # Social Democratic Party
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$v2pashname == 'CDS-PP'] <- 'CDS / PP' # Democratic and Social Centre -- People's Party
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$v2pashname == 'PS' & cabinets$election_year == 1980] <- 'FRS' # Republican and Socialist Front (FRS); electoral alliance of the Socialist Party (PS), Leftwing Union for the Socialist Democracy (UEDS) and Independent Social Democratic Action (ASDI)
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$v2pashname == 'PCP' & cabinets$election_year >= 1987  ] <- 'CDU' # Portuguese Communist Party / CDU
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$v2pashname == 'PCP' & cabinets$election_year == 1979] <- 'APU' # APU electoral and political coalition between the Portuguese Communist Party (PCP) and the Portuguese Democratic Movement (MDP-CDE)
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$v2pashname == 'PCP' & cabinets$election_year == 1980] <- 'APU'
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$v2pashname == 'PCP' & cabinets$election_year == 1985] <- 'APU' 
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$party_name_short == 'PSD' & cabinets$election_year == 1979] <- 'AD' # Democratic Alliance 1979
+cabinets$v2pashname[cabinets$country_name == 'Portugal' & cabinets$party_name_short == 'PSD' & cabinets$election_year == 1980] <- 'AD' # Democratic Alliance 1980
+
+#Romania
+cabinets$v2pashname[cabinets$country_name == 'Romania' & cabinets$v2pashname == 'PLR|ALDE'] <- 'ALDE' # Liberal Reformist Party | Alliance of Liberals
+cabinets$v2pashname[cabinets$country_name == 'Romania' & cabinets$v2pashname == 'UDMR'] <- 'UDMR / DAHR /  RMDSZ' # Democratic Union of Hungarians
+cabinets$v2pashname[cabinets$country_name == 'Romania' & cabinets$v2pashname == 'PU|PC'] <- 'PC / PUR' # Humanist Party | Conservative Party
+
+#Slovakia
+cabinets$v2pashname[cabinets$country_name == 'Slovakia' & cabinets$v2pashname == 'MK'] <- 'SMK-MKP' # Hungarian Coalition ## note 1994 is earliest year for SVK v-party data
+
+#Slovenia
+cabinets$v2pashname[cabinets$country_name == 'Slovenia' & cabinets$v2pashname == 'NSI'] <- 'NSi' # New Slovenia -- Christian People's Party
+cabinets$v2pashname[cabinets$country_name == 'Slovenia' & cabinets$v2pashname == 'ZL-SD'] <- 'SD / ZLSD' # United List -- Social Democrats
+cabinets$v2pashname[cabinets$country_name == 'Slovenia' & cabinets$v2pashname == 'LZJ-PS'] <- 'LZJPS' # Zoran Jankovic's List -- Positive Slovenia
+
+# Sweden
+cabinets$v2pashname[cabinets$country_name == 'Sweden' & cabinets$v2pashname == 'SAP'] <- 'S' # Social Democrats
+cabinets$v2pashname[cabinets$country_name == 'Sweden' & cabinets$v2pashname == 'M'] <- 'H/M' # Right Party / Moderate Party
+cabinets$v2pashname[cabinets$country_name == 'Sweden' & cabinets$v2pashname == 'C'] <- 'B/C' # Farmers' League / Centre Party
+# Switzerland
+cabinets$v2pashname[cabinets$country_name == 'Switzerland' & cabinets$v2pashname == 'LdU-ADI'] <- 'LdU' #Independents Alliance
+cabinets$v2pashname[cabinets$country_name == 'Switzerland' & cabinets$v2pashname == 'FPS'] <- 'A/FPS' #Radical Dems
+cabinets$v2pashname[cabinets$country_name == 'Switzerland' & cabinets$v2pashname == 'GPL-PVL'] <- 'GPL' #Green Liberal Party
+# Turkey
+cabinets$v2pashname[cabinets$country_name == 'Turkey' & cabinets$v2pashname == 'SHP|CHP' & cabinets$election_year <= 1991] <- 'SHP' # Social Democratic Populist Party
+cabinets$v2pashname[cabinets$country_name == 'Turkey' & cabinets$v2pashname == 'SHP|CHP' & cabinets$election_year >= 1995] <- 'CHP' # Social Democratic Populist Party
+cabinets$v2pashname[cabinets$country_name == 'Turkey' & cabinets$v2pashname == 'AKP' & cabinets$election_year == 2018] <- "People's All..." # People's Alliance (AKP)
+
+####################################################
+```
+
+
+
+
+
+
+### Assign ideology scores to cabinet parties (ParlGov)
+
+```{r match data}
+
+# create country-year-party identifier (country+year+party)
+cabinets$id <- paste(cabinets$country_name_short, cabinets$election_year, cabinets$v2pashname)
+
+# create variable 
+cabinets$antipluralism <- ''
+# populate through match by 'id' variable
+cabinets$antipluralism <- vparty$v2xpa_antiplural[match(cabinets$id, vparty$id)]
+describe(cabinets$antipluralism[cabinets$election_year >= 1970 & cabinets$seat_share >= 0.05]) # 428 NA
+
+# create variable 
+cabinets$populism <- ''
+# populate through match by 'id' variable
+cabinets$populism <- vparty$v2xpa_popul[match(cabinets$id, vparty$id)]
+describe(cabinets$populism[cabinets$election_year >= 1970 & cabinets$seat_share >= 0.05]) # 426 NA
+
+#### Left right
+
+# assess variable missing-ness
+# Internal V-Party indicators
+describe(vparty$v2xpa_popul) # Populism: 5590 missing, 6308 n
+describe(vparty$v2pariglef) # Economic left-right scale: 5595 missing
+#describe(vparty$ep_galtan_salience) # libertarian or traditional issues: 11769 missing
+#describe(vparty$ep_v6_lib_cons) # Social Liberalism-Conservatism: 11376 missing
+
+# create variable 
+cabinets$conservativeness <- ''
+# populate through match by 'id' variable
+cabinets$conservativeness <- vparty$v2pariglef[match(cabinets$id, vparty$id)]
+describe(cabinets$conservativeness[cabinets$election_year >= 1970 & cabinets$seat_share >= 0.05]) # 432 NA
+
+##### Extremism
+
+# create variable 
+cabinets$extremism <- ''
+# populate through match by 'id' variable
+cabinets$extremism <- abs(vparty$v2pariglef[match(cabinets$id, vparty$id)])
+describe(cabinets$extremism[cabinets$election_year >= 1970 & cabinets$seat_share >= 0.05]) # 432 NA
+
+# States in parl gov data
+unique(cabinets$country_name_short)
+# create list
+parl.states <- unique(cabinets$country_name_short)
+
+# view distribution
+hist(cabinets$antipluralism)
+hist(cabinets$populism)
+hist(cabinets$conservativeness)
+hist(cabinets$extremism)
+
+####################################################
+```
+
+### Parl gov api and popul
+
+```{r parl gov api}
+
+# coutry -cabint match id
+cabinets$cc2 <- paste(cabinets$country_name, cabinets$cabinet_name)
+
+# create gov party variable
+cabinets$gov_party <- 0
+cabinets$gov_party[cabinets$caretaker ==1  | cabinets$cabinet_party ==1 | cabinets$prime_minister ==1] <- 1
+
+# create API_weight variable for aggregation;
+cabinets$api_weight <- cabinets$antipluralism*cabinets$seat_share
+
+# create popul_weight variable for aggregation;
+cabinets$popul_weight <- cabinets$populism*cabinets$seat_share
+
+# create conserv_weight variable for aggregation;
+cabinets$conserv_weight <- cabinets$conservativeness*cabinets$seat_share
+
+# create extremism_weight variable for aggregation;
+cabinets$extremism_weight <- cabinets$extremism*cabinets$seat_share
+
+
+# Export DataFrame to CSV file
+write.csv(cabinets,file='~/Desktop/Phd Program/Fall 2024/Quantitative Model/cabinets_apr2025.csv')
+
+############
+
+
+### transform data, API
+
+df1.cabinets <- aggregate(cabinets$api_weight, by=list(cabinets$country_name, cabinets$cabinet_name, cabinets$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+### transform data, API/cross check of above
+
+#df1.cabinets.alt <- aggregate(cabinets$api_weight, by=list(cabinets$cc2, cabinets$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
+#df1.cabinets.alt.check <- as.data.frame(table(df1.cabinets.alt$Group.1))
+
+# rename columns
+names(df1.cabinets)[names(df1.cabinets) == 'Group.1'] <- 'country_name'
+names(df1.cabinets)[names(df1.cabinets) == 'Group.2'] <- 'cabinet_name'
+names(df1.cabinets)[names(df1.cabinets) == 'Group.3'] <- 'gov_parties'
+names(df1.cabinets)[names(df1.cabinets) == 'x'] <- 'api_gov'
+
+# describe
+describe(df1.cabinets$api_gov)
+
+# coutry -cabint match id
+df1.cabinets$cc2 <- paste(df1.cabinets$country_name, df1.cabinets$cabinet_name)
+df1.cabinets$cc3 <- paste(df1.cabinets$country_name, df1.cabinets$cabinet_name, df1.cabinets$gov_parties)
+
+#########################################
+### transform data, Populism
+df2.cabinets <- aggregate(cabinets$popul_weight, by=list(cabinets$country_name, cabinets$cabinet_name, cabinets$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df2.cabinets)[names(df2.cabinets) == 'Group.1'] <- 'country_name'
+names(df2.cabinets)[names(df2.cabinets) == 'Group.2'] <- 'cabinet_name'
+names(df2.cabinets)[names(df2.cabinets) == 'Group.3'] <- 'gov_parties'
+names(df2.cabinets)[names(df2.cabinets) == 'x'] <- 'popul_gov'
+
+# describe
+describe(df1.cabinets$api_gov)
+
+# coutry -cabinet match id
+df2.cabinets$cc2 <- paste(df2.cabinets$country_name, df2.cabinets$cabinet_name)
+df2.cabinets$cc3 <- paste(df2.cabinets$country_name, df2.cabinets$cabinet_name, df2.cabinets$gov_parties)
+
+#########################################
+#### transform data, conservativeness
+df2a.cabinets <- aggregate(cabinets$conserv_weight, by=list(cabinets$country_name, cabinets$cabinet_name, cabinets$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df2a.cabinets)[names(df2a.cabinets) == 'Group.1'] <- 'country_name'
+names(df2a.cabinets)[names(df2a.cabinets) == 'Group.2'] <- 'cabinet_name'
+names(df2a.cabinets)[names(df2a.cabinets) == 'Group.3'] <- 'gov_parties'
+names(df2a.cabinets)[names(df2a.cabinets) == 'x'] <- 'conserv_gov'
+
+# describe
+describe(df2a.cabinets$conserv_gov)
+
+# coutry -cabinet match id
+df2a.cabinets$cc2 <- paste(df2a.cabinets$country_name, df2a.cabinets$cabinet_name)
+df2a.cabinets$cc3 <- paste(df2a.cabinets$country_name, df2a.cabinets$cabinet_name, df2a.cabinets$gov_parties)
+
+########################
+#### transform data, conservativeness
+df2b.cabinets <- aggregate(cabinets$extremism_weight, by=list(cabinets$country_name, cabinets$cabinet_name, cabinets$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df2b.cabinets)[names(df2b.cabinets) == 'Group.1'] <- 'country_name'
+names(df2b.cabinets)[names(df2b.cabinets) == 'Group.2'] <- 'cabinet_name'
+names(df2b.cabinets)[names(df2b.cabinets) == 'Group.3'] <- 'gov_parties'
+names(df2b.cabinets)[names(df2b.cabinets) == 'x'] <- 'extremism_weight'
+
+# describe
+describe(df2b.cabinets$extremism_weight)
+
+# coutry -cabinet match id
+df2b.cabinets$cc2 <- paste(df2b.cabinets$country_name, df2b.cabinets$cabinet_name)
+df2b.cabinets$cc3 <- paste(df2b.cabinets$country_name, df2b.cabinets$cabinet_name, df2b.cabinets$gov_parties)
+
+
+### transform data, seat share
+df3.cabinets <- aggregate(cabinets$seat_share, by=list(cabinets$country_name, cabinets$cabinet_name, cabinets$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df3.cabinets)[names(df3.cabinets) == 'Group.1'] <- 'country_name'
+names(df3.cabinets)[names(df3.cabinets) == 'Group.2'] <- 'cabinet_name'
+names(df3.cabinets)[names(df3.cabinets) == 'Group.3'] <- 'gov_parties'
+names(df3.cabinets)[names(df3.cabinets) == 'x'] <- 'seat_share'
+
+# describe
+describe(df3.cabinets$seat_share)
+
+# coutry -cabinet match id
+df3.cabinets$cc2 <- paste(df3.cabinets$country_name, df3.cabinets$cabinet_name)
+df3.cabinets$cc3 <- paste(df3.cabinets$country_name, df3.cabinets$cabinet_name, df3.cabinets$gov_parties)
+
+df3.cabinets.check <- subset(df3.cabinets, seat_share <= .40 & gov_parties == 1)
+
+```
+
+
+```{r combine cabinets scores}
+################# Populate
+# popul_gov, from df2
+df1.cabinets$popul_gov <- df2.cabinets$popul_gov[match(df1.cabinets$cc3, df2.cabinets$cc3)]
+# conserv_gov, from df2a.cabinets
+df1.cabinets$conserv_gov <- df2a.cabinets$conserv_gov[match(df1.cabinets$cc3, df2a.cabinets$cc3)]
+# conserv_gov, from df2a.cabinets
+df1.cabinets$extremism_gov <- df2b.cabinets$extremism_weight[match(df1.cabinets$cc3, df2b.cabinets$cc3)]
+# seat_share, from df3.cabinets
+df1.cabinets$seat_share_gov <- df3.cabinets$seat_share[match(df1.cabinets$cc3, df3.cabinets$cc3)]
+
+################## year from cabinets
+# country name short, cabinets
+df1.cabinets$country_name_short <- cabinets$country_name_short[match(df1.cabinets$cc2, cabinets$cc2)]
+# election year, cabinets
+df1.cabinets$election_year <- cabinets$election_year[match(df1.cabinets$cc2, cabinets$cc2)]
+# election year, cabinets
+df1.cabinets$start_date <- cabinets$start_date[match(df1.cabinets$cc2, cabinets$cc2)]
+# make start date a date
+# format date for 2000-
+df1.cabinets$start_date_fmt[df1.cabinets$election_year >= 2000] <- format(as.Date(df1.cabinets$start_date[df1.cabinets$election_year >= 2000], "%m/%d/%y"), "20%y-%m-%d")
+# format date for -2000
+df1.cabinets$start_date_fmt[df1.cabinets$election_year < 2000] <- format(as.Date(df1.cabinets$start_date[df1.cabinets$election_year < 2000], "%m/%d/%y"), "19%y-%m-%d")
+# start year from start date
+df1.cabinets$start_year <- format(as.Date(df1.cabinets$start_date_fmt, "%Y-%m-%d"),"%Y")
+# Correct: format date for -2000 election but 2000- start date
+df1.cabinets$start_date_fmt[df1.cabinets$election_year < 2000 & df1.cabinets$start_year < 1910] <- format(as.Date(df1.cabinets$start_date[df1.cabinets$election_year < 2000 & df1.cabinets$start_year < 1910], "%m/%d/%y"), "20%y-%m-%d")
+# Correct: start year from start date
+df1.cabinets$start_year <- format(as.Date(df1.cabinets$start_date_fmt, "%Y-%m-%d"),"%Y")
+
+# create country-year identifier (country+year)
+df1.cabinets$cy2 <- paste(df1.cabinets$country_name, df1.cabinets$election_year)
+# create country-year identifier (country+year)
+df1.cabinets$cy <- paste(df1.cabinets$country_name_short, df1.cabinets$election_year)
+# create country-year identifier (country+year)
+df1.cabinets$cs2 <- paste(df1.cabinets$country_name, df1.cabinets$start_year)
+
+######### Create dataset for analysis
+
+df.cabinets <- df1.cabinets
+
+```
+
+# Controls
+
+## Democracy indicator
+
+### Boix, Miller, Rosato 2013 - Regimes
+
+```{r boix data}
+
+## Load boix 2013 data 
+boix2013 <- read.csv("~/Desktop/Phd Program/Fall 2024/Boix 2013 Dataverse/democracy-v4.0.csv")
+
+# describe data
+describe(boix2013$democracy) # 645 missing
+
+# create fix variables
+boix2013$country_fix <- boix2013$country
+boix2013$abbreviation_fix <- boix2013$abbreviation
+
+library(stringr)
+
+# Fix country case (title case)
+boix2013$country_fix <- str_to_title(boix2013$country_fix)
+
+# fix country
+boix2013$country_fix[boix2013$country == 'UNITED STATES OF AMERICA'] <- 'United States of America'
+boix2013$country_fix[boix2013$country == 'CZECHOSLOVAKIA'] <- 'Czech Republic'
+boix2013$country_fix[boix2013$country == 'TURKEY'] <- 'Turkey'
+
+
+
+# fix abbreviations
+boix2013$abbreviation_fix[boix2013$abbreviation == 'CSK'] <- 'CZE'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'SWD'] <- 'SWE'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'SVU'] <- 'RUS'
+boix2013$abbreviation_fix[boix2013$abbreviation_undp == 'KSV'] <- 'XKX'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'ETF'] <- 'ETH'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'TMP'] <- 'TLS'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'ZAR'] <- 'COD'
+boix2013$abbreviation_fix[boix2013$abbreviation_undp == 'MNT'] <- 'MNE'
+boix2013$abbreviation_fix[boix2013$abbreviation_undp == 'SRB'] <- 'SRB'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'ROM'] <- 'ROU'
+
+
+# create country-year identifier (country+year)
+boix2013$cy <- paste(boix2013$abbreviation_fix, boix2013$year)
+boix2013$cy2 <- paste(boix2013$country_fix, boix2013$year)
+
+## Match data
+# populate, match by country-year 'cy' variable
+vparty$democracy <- boix2013$democracy[match(vparty$cy, boix2013$cy)] # 
+
+## Match data
+# populate, match by country-year 'cy' variable
+#df.cabinets$democracy <- boix2013$democracy[match(df.cabinets$cy, boix2013$cy)] # 
+
+```
+
+
+
+## FDI Flow Data
+
+### Load FDI Flow Data
+
+```{r load fdi data}
+### Load data -----------------------------------------
+
+## Load fdi data (UN Stat), 1970-1989
+fdi.inflow1989 <- read.csv("~/Desktop/PhD Program/Fall 2024/Quantitative Model/fdi_inflow_outflow_UNstat_1970-1989_inflow.csv") # FDI stock, current USD and accumulated flow, inflow
+# Remove FDI Type column
+fdi.inflow1989$Type <- NULL
+
+## Load fdi data (UN Stat), 1990-2022
+fdi.inflow2022 <- read.csv("~/Desktop/PhD Program/Fall 2024/Quantitative Model/US.FdiStock_1990-2022.csv")
+
+#Combine datasets
+fdi.inflow <- rbind(fdi.inflow1989, fdi.inflow2022)
+# describe values
+describe(fdi.inflow$Value) # mean=4117 US$M, Gmd=8105, 348 missing
+
+# Create country_name variable to match V-Dem data
+fdi.inflow$country_name <- fdi.inflow$Economy
+
+# Fix data for "Switzerland", "Latvia", "Netherlands", "Turkey", [5] "Belgium", "Czech Republic", "Lithuania", "Luxembourg", "Slovenia"
+# Note: Missing data for Latvia 1990-91, Lithuania 1990-91, Slovenia 1990-91, Switzerland pre-1983, Czech Republic 1990-92, Luxembourg pre-2002
+fdi.inflow$country_name[fdi.inflow$Economy == 'Switzerland, Liechtenstein'] <- 'Switzerland' # V-Party does not include Liechtenstein
+fdi.inflow$country_name[fdi.inflow$Economy == 'Netherlands (Kingdom of the)'] <- 'Netherlands'
+fdi.inflow$country_name[fdi.inflow$Economy == 'Turkiye'] <- 'Turkey'
+fdi.inflow$country_name[fdi.inflow$Economy == 'Czechia'] <- 'Czech Republic'
+# Fix Belgium/Luxembourg, coded as one economy in 1970-1989 data
+# Working solution: Subset the rbind to create identical entries for both
+fdi.inflow.luxembourg <- subset(fdi.inflow, fdi.inflow$Economy == 'Belgium / Luxembourg')
+# Change country name in both df.s
+fdi.inflow.luxembourg$country_name[fdi.inflow.luxembourg$Economy == 'Belgium / Luxembourg'] <- 'Luxembourg'
+fdi.inflow$country_name[fdi.inflow$Economy == 'Belgium / Luxembourg'] <- 'Belgium'
+fdi.inflow <- rbind(fdi.inflow, fdi.inflow.luxembourg)
+
+# create country-year identifier (country+year)
+fdi.inflow$cy2 <- paste(fdi.inflow$country_name, fdi.inflow$Year)
+
+# Match, include in model df
+# populate FDI data to vparty df through match by country-year 'cy' variable
+vparty$fdi_inflow <- fdi.inflow$Value[match(vparty$cy2, fdi.inflow$cy2)]
+describe(vparty$fdi_inflow) # 2255 n, 61 missing (less than 3 percent missing)
+unique(vparty$cy[is.na(vparty$fdi_inflow)]) # 402 country years
+
+hist(vparty$year[is.na(vparty$fdi_inflow)])
+
+# Unique countries in model data for which fdi data does not populate automatically
+# unique(vparty.model$country_name[is.na(vparty.model$fdi_inflow)])
+# Original missing: "Switzerland", "Latvia", "Netherlands", "Turkey", [5] "Belgium", "Czech Republic", "Lithuania", "Luxembourg", "Slovenia"
+# vparty.model.fdi_check <- subset(vparty.model, is.na(vparty.model$fdi_inflow))
+
+```
+
+
+# Build V-Dem Dataframe for Main Model
+
+### load V-Dem data
+
+``` {r load vdem}
+## Load vdem data 
+load("~/Desktop/Phd Program/Fall 2024/ERT Data/v15 2025/vdem_v15.RData")
+
+# Fix country names
+vdem$country_name_fix <- vdem$country_name
+vdem$country_name_fix[vdem$country_name == "Türkiye"] <- "Turkey"
+ 
+# create country-year identifier (country+year)
+vdem$cy <- paste(vdem$country_text_id, vdem$year)
+vdem$cy2 <- paste(vdem$country_name_fix, vdem$year)
+
+# Lag variable (2 years) using fixest package: https://lrberge.github.io/fixest/reference/lag.formula.html
+#install.packages(fixest)
+library(fixest)
+vdem$v2jupoatck_lag1 <- lag(v2jupoatck ~ country_name + year, k = 1, vdem)
+vdem$v2juhccomp_lag1 <- lag(v2juhccomp ~ country_name + year, k = 1, vdem)
+vdem$v2juhcind_lag1 <- lag(v2juhcind ~ country_name + year, k = 1, vdem)
+describe(vdem$v2juhccomp_lag1)
+
+```
+
+
+## Transform data
+
+Transform data structure to be one observation per election, combining party API score by seat share.
+
+Code references:
+Combining: https://stackoverflow.com/questions/71526607/combining-multiple-rows-per-observation-into-one-in-r
+Aggregate command: https://www.statology.org/aggregate-r/
+
+## Build dataframe
+
+```{r replication dataframe}
+
+df <- subset(vdem, select = c(cy, cy2, country_name, year, v2x_jucon, v2jupoatck, v2jupoatck_lag1,  v2jupack, v2jupurge, v2juhcind, v2juhcind_lag1, v2juhccomp, v2xlg_legcon, v2x_divparctrl, v2juhccomp_lag1, v2x_polyarchy, v2x_regime, e_gdppc, e_regiongeo, e_regionpol))
+
+```
+
+```{r populate country level data}
+# V-dem
+# create log of gdp/capita variable
+df$log_e_gdppc <- log(df$e_gdppc)
+
+# political region
+## Transform political region variable
+
+df$region[df$e_regionpol == 1] <- 'E. Europe'
+df$region[df$e_regionpol == 2] <- 'Latin Am.'
+df$region[df$e_regionpol == 3] <- 'MENA'
+df$region[df$e_regionpol == 4] <- 'Sub-S. Africa'
+df$region[df$e_regionpol == 5] <- 'W. Europe, N. Am.'
+df$region[df$e_regionpol == 6] <- 'E. Asia'
+df$region[df$e_regionpol == 7] <- 'S.E. Asia'
+df$region[df$e_regionpol == 8] <- 'S. Asia'
+df$region[df$e_regionpol == 9] <- 'Pacific'
+df$region[df$e_regionpol == 10] <- 'Carribean'
+
+# Henisz
+# polcon with vdem
+df$POLCONIII_VDEM <- polcon$POLCONIII_VDEM[match(df$cy2, polcon$cy2)]
+# polcon
+df$polconiii <- polcon$polconiii[match(df$cy2, polcon$cy2)]
+
+# Linzer Staton
+# LJI
+df$LJI <- linzerstaton$LJI[match(df$cy2, linzerstaton$cy2)]
+# LJI_lag
+df$LJI_lag1 <- linzerstaton$LJI_lag1[match(df$cy2, linzerstaton$cy2)]
+describe(df$LJI_lag1)
+# LJI_lag
+df$LJI_lag2 <- linzerstaton$LJI_lag2[match(df$cy2, linzerstaton$cy2)]
+# LJI_lag
+df$LJI_lag3 <- linzerstaton$LJI_lag3[match(df$cy2, linzerstaton$cy2)]
+# LJI lead 1
+df$LJI_lead1 <- linzerstaton$LJI_lead1[match(df$cy2, linzerstaton$cy2)]
+# LJI lead 2
+df$LJI_lead2 <- linzerstaton$LJI_lead2[match(df$cy2, linzerstaton$cy2)]
+
+# Linzer Staton with vdem indicators
+# LJI
+df$LJI_vdem <- linzerstaton$LJI_vdem[match(df$cy2, linzerstaton$cy2)]
+# LJI_lag
+df$LJI_vdem_lag1 <- linzerstaton$LJI_vdem_lag1[match(df$cy2, linzerstaton$cy2)]
+describe(df$LJI_vdem_lag1)
+# LJI_vdem_lag
+df$LJI_vdem_lag2 <- linzerstaton$LJI_vdem_lag2[match(df$cy2, linzerstaton$cy2)]
+# LJI_vdem_lag
+df$LJI_vdem_lag3 <- linzerstaton$LJI_vdem_lag3[match(df$cy2, linzerstaton$cy2)]
+# LJI lead 1
+df$LJI_vdem_lead1 <- linzerstaton$LJI_vdem_lead1[match(df$cy2, linzerstaton$cy2)]
+# LJI lead 2
+df$LJI_vdem_lead2 <- linzerstaton$LJI_vdem_lead2[match(df$cy2, linzerstaton$cy2)]
+
+
+# ERT
+# Regime transition
+#df$reg_trans <- episodes$reg_trans[match(df$cy, episodes$cy)]
+# Regime type
+#df$reg_type <- episodes$reg_type[match(df$cy, episodes$cy)]
+# Dem transition
+#df$dem_transition <- episodes$dem_transition[match(df$cy, episodes$cy)]
+#describe(df$dem_transition)
+# Dem breakdown
+#df$dem_breakdown <- episodes$dem_breakdown[match(df$cy, episodes$cy)]
+
+## Boix, Miller, Rosato
+# Democracy
+df$boix_democracy <- boix2013$democracy[match(df$cy, boix2013$cy)]
+describe(df$boix_democracy) # 17232 n, 10323 missing
+# create democracy text variable
+df$boix_democracy_text[df$boix_democracy == 1] <- 'democracy'
+df$boix_democracy_text[df$boix_democracy == 0] <- 'autocracy'
+
+# Democracy, omitted data (ex. occupation)
+df$boix_democracy_omitteddata <- boix2013$democracy_omitteddata[match(df$cy, boix2013$cy)]
+# Democracy transitions
+df$boix_democracy_trans <- boix2013$democracy_trans[match(df$cy, boix2013$cy)]
+# Democracy breakdowns
+df$boix_democracy_breakdowns <- boix2013$democracy_breakdowns[match(df$cy, boix2013$cy)]
+# Democracy breakdowns
+df$boix_democracy_duration <- boix2013$democracy_duration[match(df$cy, boix2013$cy)]
+# log of duration
+df$boix_democracy_duration_log <- log(as.numeric(df$boix_democracy_duration))
+
+# FDI
+# FDI stock inflow
+df$fdi_inflow <- fdi.inflow$Value[match(df$cy2, fdi.inflow$cy2)]
+df$fdi_inflow_log <- log(df$fdi_inflow)
+
+# V-Party combined
+# api_gov, df1
+df$api_gov <- df1$api_gov[match(df$cy2, df1$cy2)]
+# popul_gov, df1
+df$popul_gov <- df1$popul_gov[match(df$cy2, df1$cy2)]
+# conserv_gov, df1
+df$conserv_gov <- df1$conserv_gov[match(df$cy2, df1$cy2)]
+# conserv_gov, df1
+df$extremism_gov <- df1$extremism_gov[match(df$cy2, df1$cy2)]
+# seatshare_gov, df1
+df$seatshare_gov <- df1$seatshare_gov[match(df$cy2, df1$cy2)]
+
+```
+
+# Build Cabinets Dataframe for Main Model
+
+```{r populate country level data cabinets}
+
+## USE cy2 for COUNTRY YEAR of ELECTION
+## USE cs2 for COUNTRY YEAR of START DATE
+
+# V-dem
+# edi variable
+df.cabinets$v2x_polyarchy <- vdem$v2x_polyarchy[match(df.cabinets$cs2, vdem$cy2)]
+# judicial constraints on executive variable
+df.cabinets$v2x_jucon <- vdem$v2x_jucon[match(df.cabinets$cs2, vdem$cy2)]
+# legislative constraints on executive variable
+df.cabinets$v2xlg_legcon <- vdem$v2xlg_legcon[match(df.cabinets$cs2, vdem$cy2)]
+# Divided party control index (D) (v2x_divparctrl)
+df.cabinets$v2x_divparctrl <- vdem$v2x_divparctrl[match(df.cabinets$cs2, vdem$cy2)]
+# Judicial attacks (Haggard and Tiede) v2jupack, v2jupurge, v2juhcind
+df.cabinets$v2jupack <- vdem$v2jupack[match(df.cabinets$cs2, vdem$cy2)]
+df.cabinets$v2jupurge <- vdem$v2jupurge[match(df.cabinets$cs2, vdem$cy2)]
+df.cabinets$v2juhcind <- vdem$v2juhcind[match(df.cabinets$cs2, vdem$cy2)]
+# gdp/capita variable
+df.cabinets$e_gdppc <- vdem$e_gdppc[match(df.cabinets$cs2, vdem$cy2)]
+##
+# create log of gdp/capita variable
+df.cabinets$log_e_gdppc <- log(df.cabinets$e_gdppc)
+
+# Henisz
+# polcon with vdem
+df.cabinets$POLCONIII_VDEM <- polcon$POLCONIII_VDEM[match(df.cabinets$cs2, polcon$cy2)]
+# polcon
+df.cabinets$polconiii <- polcon$polconiii[match(df.cabinets$cs2, polcon$cy2)]
+
+# Linzer Staton
+# LJI
+df.cabinets$LJI <- linzerstaton$LJI[match(df.cabinets$cs2, linzerstaton$cy2)]
+# LJI_lag
+df.cabinets$LJI_lag1 <- linzerstaton$LJI_lag1[match(df.cabinets$cs2, linzerstaton$cy2)]
+#describe(df.cabinets$LJI_lag1)
+# LJI_lag
+df.cabinets$LJI_lag2 <- linzerstaton$LJI_lag2[match(df.cabinets$cs2, linzerstaton$cy2)]
+# LJI_lag
+df.cabinets$LJI_lag3 <- linzerstaton$LJI_lag3[match(df.cabinets$cs2, linzerstaton$cy2)]
+# LJI lead 1
+df.cabinets$LJI_lead1 <- linzerstaton$LJI_lead1[match(df.cabinets$cs2, linzerstaton$cy2)]
+# LJI lead 2
+df.cabinets$LJI_lead2 <- linzerstaton$LJI_lead2[match(df.cabinets$cs2, linzerstaton$cy2)]
+
+# Linzer Staton with vdem indicators
+# LJI
+df.cabinets$LJI_vdem <- linzerstaton$LJI_vdem[match(df.cabinets$cs2, linzerstaton$cy2)]
+# LJI_lag
+df.cabinets$LJI_vdem_lag1 <- linzerstaton$LJI_vdem_lag1[match(df.cabinets$cs2, linzerstaton$cy2)]
+#describe(df.cabinets$LJI_vdem_lag1)
+# LJI_vdem_lag
+df.cabinets$LJI_vdem_lag2 <- linzerstaton$LJI_vdem_lag2[match(df.cabinets$cs2, linzerstaton$cy2)]
+# LJI_vdem_lag
+df.cabinets$LJI_vdem_lag3 <- linzerstaton$LJI_vdem_lag3[match(df.cabinets$cs2, linzerstaton$cy2)]
+# LJI lead 1
+df.cabinets$LJI_vdem_lead1 <- linzerstaton$LJI_vdem_lead1[match(df.cabinets$cs2, linzerstaton$cy2)]
+# LJI lead 2
+df.cabinets$LJI_vdem_lead2 <- linzerstaton$LJI_vdem_lead2[match(df.cabinets$cs2, linzerstaton$cy2)]
+
+# ERT
+# Regime transition
+#df.cabinets$reg_trans <- episodes$reg_trans[match(df.cabinets$cy, episodes$cy)]
+# Regime type
+#df.cabinets$reg_type <- episodes$reg_type[match(df.cabinets$cy, episodes$cy)]
+# Dem transition
+#df.cabinets$dem_transition <- episodes$dem_transition[match(df.cabinets$cy, episodes$cy)]
+#describe(df.cabinets$dem_transition)
+# Dem breakdown
+#df.cabinets$dem_breakdown <- episodes$dem_breakdown[match(df.cabinets$cy, episodes$cy)]
+
+## Boix, Miller, Rosato
+# Democracy
+df.cabinets$boix_democracy <- boix2013$democracy[match(df.cabinets$cy, boix2013$cy)]
+#describe(df.cabinets$boix_democracy) # 
+# create democracy text variable
+df.cabinets$boix_democracy_text[df.cabinets$boix_democracy == 1] <- 'democracy'
+df.cabinets$boix_democracy_text[df.cabinets$boix_democracy == 0] <- 'autocracy'
+
+# Democracy, omitted data (ex. occupation)
+df.cabinets$boix_democracy_omitteddata <- boix2013$democracy_omitteddata[match(df.cabinets$cy, boix2013$cy)]
+# Democracy transitions
+df.cabinets$boix_democracy_trans <- boix2013$democracy_trans[match(df.cabinets$cy, boix2013$cy)]
+# Democracy breakdowns
+df.cabinets$boix_democracy_breakdowns <- boix2013$democracy_breakdowns[match(df.cabinets$cy, boix2013$cy)]
+# Democracy breakdowns
+df.cabinets$boix_democracy_duration <- boix2013$democracy_duration[match(df.cabinets$cy, boix2013$cy)]
+# log of duration
+df.cabinets$boix_democracy_duration_log <- log(as.numeric(df.cabinets$boix_democracy_duration))
+
+# FDI
+# FDI stock inflow
+df.cabinets$fdi_inflow <- fdi.inflow$Value[match(df.cabinets$cs2, fdi.inflow$cy2)]
+df.cabinets$fdi_inflow_log <- log(df.cabinets$fdi_inflow)
+
+# V-Party combined
+# api_gov, df1
+#df.cabinets$api_gov <- df1$api_gov[match(df.cabinets$cs2, df1$cy2)]
+# popul_gov, df1
+#df.cabinets$popul_gov <- df1$popul_gov[match(df.cabinets$cs2, df1$cy2)]
+# conserv_gov, df1
+#df.cabinets$conserv_gov <- df1$conserv_gov[match(df.cabinets$cs2, df1$cy2)]
+# conserv_gov, df1
+#df.cabinets$extremism_gov <- df1$extremism_gov[match(df$cy2, df1$cy2)]
+# seatshare_gov, df1
+#df$seatshare_gov <- df1$seatshare_gov[match(df$cy2, df1$cy2)]
+
+```
+
+
+
+
+# Export data
+
+```{r export data}
+
+#vdem_states <- unique(vdem$country_name)
+#vdem_states
+
+# Export DataFrame as CSV file
+write.csv(df,file='~/Desktop/Phd Program/Fall 2024/Spring 2025/Quant Model Submission/ideology_independence_data.csv')
+
+# Export DataFrame as RData file
+save(df, cabinets, df.cabinets, df.gov_scores, boix2013, fdi.inflow, linzerstaton, polcon, vparty, file='~/Desktop/Phd Program/Fall 2024/Spring 2025/Quant Model Submission/ideology_independence_data.RData')
+
+
+```
+
