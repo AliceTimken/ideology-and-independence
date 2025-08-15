@@ -25,6 +25,112 @@ package.check <- lapply(
     }
   }
 )
+
+library(fixest)
+
+```
+
+
+
+# DPI2020: Database of Political Institutions
+
+### Load data
+
+```{r load DPI data}
+###############################################
+
+DPI <- read.csv("/Users/alice/Desktop/PhD Program/Fall 2024/Spring 2025/Quant Model Submission/Data June 2025/DPI/DPI2020/dpi2020.csv")
+
+# Fix country names
+DPI$ifs_fix <- DPI$ifs
+DPI$ifs_fix[DPI$ifs == "SUN"] <- "RUS" #Soviet Union
+DPI$ifs_fix[DPI$ifs == "TMP"] <- "TLS" #Timor-Leste
+DPI$ifs_fix[DPI$ifs == "ZAR"] <- "COD" #Dem. Rep. Congo
+DPI$ifs_fix[DPI$ifs == "CSK"] <- "CZE" #Czechia
+DPI$ifs_fix[DPI$ifs == "ROM"] <- "ROU" #Romania
+
+# Make blanks = NA
+DPI$system_fix <- DPI$system
+DPI$system_fix[DPI$system == ""] <- NA
+
+# create country-year identifier (country+year)
+DPI$cy1 <- paste(DPI$ifs_fix, DPI$year)
+DPI$cy2 <- paste(DPI$countryname, DPI$year)
+
+library(fixest)
+
+# cy with lag
+DPI$year_lag <- lag_fml(year ~ countryname + year, k = 1, DPI)
+DPI$cy <- paste(DPI$ifs_fix, DPI$year_lag)
+
+# don't lag year for certain countries
+no_lag_countries <- c("Ecuador")
+DPI$cy[DPI$countryname %in% no_lag_countries] <- DPI$cy1[DPI$countryname %in% no_lag_countries]
+
+# fix -999 NA's for all house
+summary(DPI$allhouse)
+DPI$allhouse[DPI$allhouse == -999] <- NA
+summary(DPI$allhouse)
+
+# fix -999 NA's for percentl
+summary(DPI$percentl)
+DPI$percentl[DPI$percentl == -999] <- NA
+summary(DPI$percentl)
+
+#class(cabinets$election_year)
+#summary(cabinets$cabinet_party) # no missing, 31.8% cabinet parties
+
+```
+
+## Democracy indicator
+
+### Boix, Miller, Rosato 2013 - Regimes
+
+```{r boix data}
+
+## Load boix 2013 data 
+boix2013 <- read.csv("~/Desktop/Phd Program/Fall 2024/Boix 2013 Dataverse/democracy-v4.0.csv")
+
+# describe data
+describe(boix2013$democracy) # 645 missing
+
+# create fix variables
+boix2013$country_fix <- boix2013$country
+boix2013$abbreviation_fix <- boix2013$abbreviation
+
+library(stringr)
+
+# Fix country case (title case)
+boix2013$country_fix <- str_to_title(boix2013$country_fix)
+
+# fix country
+boix2013$country_fix[boix2013$country == 'UNITED STATES OF AMERICA'] <- 'United States of America'
+boix2013$country_fix[boix2013$country == 'CZECHOSLOVAKIA'] <- 'Czech Republic'
+boix2013$country_fix[boix2013$country == 'TURKEY'] <- 'Turkey'
+
+
+
+# fix abbreviations
+boix2013$abbreviation_fix[boix2013$abbreviation == 'CSK'] <- 'CZE'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'SWD'] <- 'SWE'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'SVU'] <- 'RUS'
+boix2013$abbreviation_fix[boix2013$abbreviation_undp == 'KSV'] <- 'XKX'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'ETF'] <- 'ETH'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'TMP'] <- 'TLS'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'ZAR'] <- 'COD'
+boix2013$abbreviation_fix[boix2013$abbreviation_undp == 'MNT'] <- 'MNE'
+boix2013$abbreviation_fix[boix2013$abbreviation_undp == 'SRB'] <- 'SRB'
+boix2013$abbreviation_fix[boix2013$abbreviation == 'ROM'] <- 'ROU'
+
+
+# create country-year identifier (country+year)
+boix2013$cy <- paste(boix2013$abbreviation_fix, boix2013$year)
+boix2013$cy2 <- paste(boix2013$country_fix, boix2013$year)
+
+## Match data
+# populate, match by country-year 'cy' variable
+#df.cabinets$democracy <- boix2013$democracy[match(df.cabinets$cy, boix2013$cy)] # 
+
 ```
 
 
@@ -54,6 +160,9 @@ vparty$cy <- paste(vparty$country_text_id, vparty$year)
 # create country-year identifier (country+year)
 vparty$cy2 <- paste(vparty$country_name, vparty$year)
 
+# add seatshare for easy reference
+vparty$seatshare_vparty <- vparty$v2paseatshare
+
 ## Name regional categories - Region (politico-geographic) 
 #1: Eastern Europe and post Soviet Union (including Central Asia, Mongolia, and German Democratic Republic)
 #2: Latin America (including Cuba, Haiti, and the Dominican Republic)
@@ -66,9 +175,968 @@ vparty$cy2 <- paste(vparty$country_name, vparty$year)
 #9: The Pacific (excluding Australia and New Zealand)
 #10: The Caribbean (including Guyana and Suriname, but excluding Cuba, Haiti, and theDominican Republic)
 
+# political region
+## Transform political region variable
+
+vparty$region[vparty$e_regionpol == 1] <- 'E. Europe'
+vparty$region[vparty$e_regionpol == 2] <- 'Latin Am.'
+vparty$region[vparty$e_regionpol == 3] <- 'MENA'
+vparty$region[vparty$e_regionpol == 4] <- 'Sub-S. Africa'
+vparty$region[vparty$e_regionpol == 5] <- 'W. Europe, N. Am.'
+vparty$region[vparty$e_regionpol == 6] <- 'E. Asia'
+vparty$region[vparty$e_regionpol == 7] <- 'S.E. Asia'
+vparty$region[vparty$e_regionpol == 8] <- 'S. Asia'
+vparty$region[vparty$e_regionpol == 9] <- 'Pacific'
+vparty$region[vparty$e_regionpol == 10] <- 'Carribean'
+
 ```
 
-### Calculate ideology weights
+```{r match democracy boix}
+
+## Match data
+# populate, match by country-year 'cy' variable
+#vparty$democracy <- boix2013$democracy[match(vparty$cy, boix2013$cy)] # 
+
+## Boix, Miller, Rosato
+# Democracy
+vparty$boix_democracy <- boix2013$democracy[match(vparty$cy, boix2013$cy)]
+summary(vparty$boix_democracy) #n=7281, 918 NA
+
+```
+
+### Explore data
+
+```{r explore party positions}
+
+# Anti-Pluralism vs. Populism
+# 3.2.13 Economic left-right scale (C) (v2pariglef)
+
+# plot vparty
+ggplot(data = subset(vparty, year >= 1976 & year <= 2014 & boix_democracy == 1 & country_name != "Timor-Leste" & country_name != "Bosnia and Herzegovina"), mapping = aes(x = v2xpa_popul, y = v2xpa_antiplural)) +
+  geom_point(alpha = 0.5, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "", x = "Anti-elitism (V-Party)", y = "Anti-pluralism (V-Party)", color = "Region", size = "Seat Share")
+
+# plot vparty
+ggplot(data = subset(vparty, year >= 1976 & year <= 2015 & boix_democracy == 1), mapping = aes(x = v2xpa_antiplural, y = v2pariglef)) +
+  geom_point(alpha = 0.3, aes(size = v2paseatshare, color = as.factor(e_regionpol))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Anti-pluralism (V-Party)", y = "Economic Left-Right (V-Party)")
+
+# plot vparty
+ggplot(data = subset(vparty, year >= 1976 & year <= 2015 & boix_democracy == 1), mapping = aes(x = v2pariglef, y = v2xpa_popul)) +
+  geom_point(alpha = 0.3, aes(size = v2paseatshare, color = as.factor(e_regionpol))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Economic Left-Right (V-Party)", y = "Populist Rhetoric (V-Party)")
+
+```
+
+```{r explore vparty data anti-pluralism}
+
+# Liberal–Traditional Scaling
+# 4.2.1 Position on democratic freedoms and rights (E) (ep_galtan)
+# Citation: Bakker et al. (2015), Polk et al. (2017), Bakker et al. (2020)
+
+# 4.1.1 Salience of anti–establishment rhetoric (E) (ep_antielite_salience)
+# Question: What is the salience of anti–establishment and anti–elite rhetoric? Responses:
+# Citation: Bakker et al. (2015), Polk et al. (2017), Bakker et al. (2020)
+
+# 4.1.7 Populist rhetoric (E) (ep_v8_popul_rhetoric)
+# Question: Where would you place each party on the following scale?
+# Citation: Norris (2020)
+
+# 2.1 Anti-Pluralism Index (D) (v2xpa_antiplural)
+# Additional versions: *_codelow, *_codehigh
+# Question: To what extent does the party show a lacking commitment to democratic norms prior to elections?
+
+# plot vparty
+ggplot(data = subset(vparty, boix_democracy == 1), mapping = aes(x = v2xpa_antiplural, y = ep_galtan)) +
+  geom_point(alpha = 0.6, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Anti-pluralism (V-Party)", y = "GAL-TAN (CHES)")
+
+# plot vparty
+ggplot(data = subset(vparty, boix_democracy == 1), mapping = aes(x = v2xpa_antiplural, y = ep_antielite_salience)) +
+  geom_point(alpha = 0.6, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Anti-pluralism (V-Party)", y = "Anti-Establishment Rhetoric (CHES)")
+
+# plot vparty
+ggplot(data = subset(vparty, boix_democracy == 1), mapping = aes(x = v2xpa_antiplural, y = ep_v8_popul_rhetoric)) +
+  geom_point(alpha = 0.6, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Anti-pluralism (V-Party)", y = "Populist/Plrualist Rhetoric (Norris 2020)")
+
+
+```
+
+```{r explore v-party data populist rhetoric}
+
+# 2.2 Populism Index (D) (v2xpa_popul)
+# Additional versions: *_codelow, *_codehigh
+#Question: To what extent do representatives of the party use populist rhetoric (narrowly defined)? Scale: Interval, from low to high (0-1)
+
+# plot vparty
+ggplot(data = subset(vparty, boix_democracy == 1), mapping = aes(x = v2xpa_popul, y = ep_galtan)) +
+  geom_point(alpha = 0.6, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Populism Index (V-Party)", y = "GAL-TAN (CHES)")
+
+# plot vparty
+ggplot(data = subset(vparty, boix_democracy == 1), mapping = aes(x = v2xpa_popul, y = ep_antielite_salience)) +
+  geom_point(alpha = 0.6, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Populism Index (V-Party)", y = "Salience of Anti-establishment Rhetoric (CHES)", color = "Region", size = "Seat Share")
+
+# plot vparty
+ggplot(data = subset(vparty, boix_democracy == 1), mapping = aes(x = v2xpa_popul, y = ep_people_vs_elite)) +
+  geom_point(alpha = 0.6, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Populism Index (V-Party)", y = "Direct v. Representative Demorcracy (CHES)", color = "Region", size = "Seat Share")
+
+# plot vparty
+ggplot(data = subset(vparty, boix_democracy == 1), mapping = aes(x = v2xpa_popul, y = ep_v9_popul_saliency)) +
+  geom_point(alpha = 0.6, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Populism Index (V-Party)", y = "Importance of Pop. Rhetoric (Norris 2020)")
+
+# plot vparty
+ggplot(data = subset(vparty, boix_democracy == 1), mapping = aes(x = v2xpa_popul, y = ep_v8_popul_rhetoric)) +
+  geom_point(alpha = 0.6, aes(size = v2paseatshare, color = as.factor(region))) +
+  theme_bw() +
+  #ylim(0,1) +
+  #xlim(0,1) +
+  #geom_text_repel(aes(label = cy),
+  #                size = 3,
+  #                min.segment.length = 0,
+  #                point.padding = NA) +
+#  facet_wrap(~ edi_high) + #, scales = "free_y") +
+  #geom_abline(slope=1, color = "darkgray") +
+  stat_smooth(method="loess", color="black", alpha = 0.4) +
+  labs(title = "Party Positions in Democracies", x = "Populism Index (V-Party)", y = "Use of Populist v. Plrualist Rhetoric (Norris 2020)")
+
+```
+
+
+
+
+### Identify government and opposition parties
+
+```{r merge data vparty DPI}
+
+# Marge data: Elected representative data from DPI
+
+# DPI
+# system (pres. parl.)
+vparty$system <- DPI$system[match(vparty$cy, DPI$cy)] 
+# FRAC, The probability that two deputies picked at random from the legislature will be of different parties
+vparty$frac <- DPI$frac[match(vparty$cy, DPI$cy)]
+# FRAC, The probability that two deputies picked at random from the legislature will be of different parties
+vparty$frac_orig <- DPI$frac[match(vparty$cy, DPI$cy)]# save original
+# Legislative variables
+# govfrac
+vparty$govfrac <- DPI$govfrac[match(vparty$cy, DPI$cy)] 
+# NUMVOTE, Vote share of Government Parties
+vparty$numvote <- DPI$numvote[match(vparty$cy, DPI$cy)] 
+# LARGEST GOVT PARTY, GOV1ME Name
+vparty$gov1me <- DPI$gov1me[match(vparty$cy, DPI$cy)] 
+# GOV1VOTE Vote Share
+vparty$gov1vote <- DPI$gov1vote[match(vparty$cy, DPI$cy)] 
+# 2nd GOVT. PARTY, GOV2ME Name
+vparty$gov2me <- DPI$gov2me[match(vparty$cy, DPI$cy)] 
+# GOV2VOTE Vote Share
+vparty$gov2vote <- DPI$gov2vote[match(vparty$cy, DPI$cy)] 
+# 3rd GOVT. PARTY, GOV3ME Name
+vparty$gov3me <- DPI$gov3me[match(vparty$cy, DPI$cy)] 
+# GOV3VOTE Vote Share
+vparty$gov3vote <- DPI$gov3vote[match(vparty$cy, DPI$cy)] 
+# OPPFRAC, The probability that two deputies from among the opposition parties will be of different parties.
+vparty$oppfrac <- DPI$oppfrac[match(vparty$cy, DPI$cy)] 
+# OPPVOTE, Vote Share of Opposition Parties
+vparty$oppvote <- DPI$oppvote[match(vparty$cy, DPI$cy)] 
+# LARGEST OPP. PARTY, OPP1ME Name
+vparty$opp1me <- DPI$opp1me[match(vparty$cy, DPI$cy)] 
+# OPP1VOTE Vote Share
+vparty$opp1vote <- DPI$opp1vote[match(vparty$cy, DPI$cy)] 
+# 2nd OPP. PARTY, OPP2ME Name
+vparty$opp2me <- DPI$opp2me[match(vparty$cy, DPI$cy)] 
+# OPP2VOTE Vote Share
+vparty$opp2vote <- DPI$opp2vote[match(vparty$cy, DPI$cy)] 
+# 3rd OPP. PARTY, OPP3ME Name
+vparty$opp3me <- DPI$opp3me[match(vparty$cy, DPI$cy)] 
+# OPP3VOTE Vote Share
+vparty$opp3vote <- DPI$opp3vote[match(vparty$cy, DPI$cy)] 
+
+# Fix missing frac
+vparty$frac[is.na(vparty$frac)] <- vparty$oppfrac[is.na(vparty$frac)]
+
+# Executive variables
+# EXECME, Name of party executive
+vparty$execme <- DPI$execme[match(vparty$cy, DPI$cy)] 
+# PERCENTL, President got what % of votes in the final round?
+vparty$percentl <- DPI$percentl[match(vparty$cy, DPI$cy)]
+# EXECNAT, Nationalist (1 if yes) executive
+vparty$execnat <- DPI$execnat[match(vparty$cy, DPI$cy)] 
+#ALLHOUSE, Does party of executive control all relevant houses?
+vparty$allhouse <- DPI$allhouse[match(vparty$cy, DPI$cy)] 
+
+```
+
+### Example: Merging Party Facts party datasets in R
+
+From: https://partyfacts.herokuapp.com/download/
+
+```{r merge party facts}
+
+# download and read Party Facts mapping table
+#file_name <- 'partyfacts-mapping.csv'
+#if( ! file_name %in% list.files())
+#    url <- 'https://partyfacts.herokuapp.com/download/external-parties-csv/'
+#    download.file(url, file_name)
+#partyfacts <- read.csv(file_name, as.is=TRUE)  # maybe conversion of character encoding
+
+# show and select available datasets
+#cat(paste(unique(partyfacts$dataset_key), collapse='\n'))
+#dataset_1 <- 'vparty'
+#dataset_2 <- 'dpi'
+
+# merge two datasets selected
+#first <- partyfacts[partyfacts$dataset_key == dataset_1, ]
+#second <- partyfacts[partyfacts$dataset_key == dataset_2, ]
+#merge_table <- merge(first, second, by='partyfacts_id', all=TRUE)
+
+# write results into file with dataset names in file name
+#file_out <- sprintf('partyfacts-%s-%s.csv', dataset_1, dataset_2)
+#write.csv(merge_table, file_out, na='', row.names = FALSE)
+
+```
+
+```{r fix parties}
+
+# Prep party names for merge
+vparty$v2pashname_fix <- vparty$v2pashname
+vparty$v2panaallian_fix <- vparty$v2panaallian
+
+# Mexico
+vparty$v2pashname_fix[vparty$country_name == "Mexico" & vparty$v2pashname == "MORENA"] <- "Morena"
+# Sweden
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == 'S'] <- 'Social Dem'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "MP"] <- 'Green'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "KD" & vparty$year >= 2002] <- 'Kd'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "KD" & vparty$year <= 2001] <- 'Christian Democratic'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "V" & vparty$year >= 1992] <- 'Left'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "V" & vparty$year < 1990] <- 'Communist'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "V" & vparty$year < 1976] <- 'Communists'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "H/M"] <- 'Moderate'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "B/C"] <- 'CP' # Centre
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == "FP" & (vparty$year == 2006)] <- 'Liberal'
+vparty$v2pashname_fix[vparty$country_name == 'Sweden' & vparty$v2pashname == 'SD'] <- 'Sd'
+# Switzerland
+vparty$v2pashname_fix[vparty$country_name == 'Switzerland' & vparty$v2pashname == 'SP'] <- 'Social Dem'
+vparty$v2pashname_fix[vparty$country_name == 'Switzerland' & vparty$v2pashname == 'SVP'] <- 'Swiss People' # French: Union D‚àö¬©mocratique du Centre,  national-conservative and right-wing populist
+vparty$v2pashname_fix[vparty$country_name == 'Switzerland' & vparty$v2pashname == 'FDP'] <- 'Radical Dem'
+vparty$v2pashname_fix[vparty$country_name == 'Switzerland' & vparty$v2pashname == 'Grue'] <- 'Greens'
+vparty$v2pashname_fix[vparty$country_name == 'Switzerland' & vparty$v2pashname == 'GPL'] <- 'Green Liberal'
+vparty$v2pashname_fix[vparty$country_name == 'Switzerland' & vparty$v2pashname == 'LdU' & vparty$year == 1975] <- 'independent Alliance'
+vparty$v2pashname_fix[vparty$country_name == 'Switzerland' & vparty$v2pashname == 'KK/CVP'] <- 'Chr. Dem'
+# Japan
+vparty$v2pashname_fix[vparty$country_name == 'Japan' & vparty$v2pashname == 'JSP/SDP'] <- 'Socialist'
+vparty$v2pashname_fix[vparty$country_name == 'Japan' & vparty$v2pashname == 'JSP/SDP' & vparty$year >= 1993] <- 'SDPJ'
+vparty$v2pashname_fix[vparty$country_name == 'Japan' & vparty$v2pashname == 'DSP'] <- 'Dem. Soc.'
+vparty$v2pashname_fix[vparty$country_name == 'Japan' & vparty$v2pashname == 'DPJ' & vparty$year == 1996] <- 'SDPJ'
+vparty$v2pashname_fix[vparty$country_name == 'Japan' & vparty$v2pashname == 'K' & vparty$year < 2000] <- 'Komeito'
+vparty$v2pashname_fix[vparty$country_name == 'Japan' & vparty$v2pashname == 'K' & vparty$year >= 2000] <- 'New Komeito'
+# United States
+vparty$v2pashname_fix[vparty$country_name == 'United States of America' & vparty$v2pashname == 'Rep'] <- 'Republicans'
+vparty$v2pashname_fix[vparty$country_name == 'United States of America' & vparty$v2pashname == 'Dem'] <- 'Democrats'
+# Colombia
+vparty$gov1me[vparty$country_name == 'Colombia' & vparty$gov1me == 'Conserv.'] <- 'PCC'
+vparty$gov2me[vparty$country_name == 'Colombia' & vparty$gov2me == 'Conserv.'] <- 'PCC'
+vparty$gov3me[vparty$country_name == 'Colombia' & vparty$gov3me == 'Conserv.'] <- 'PCC'
+vparty$opp1me[vparty$country_name == 'Colombia' & vparty$opp1me == 'Conserv.'] <- 'PCC'
+vparty$opp2me[vparty$country_name == 'Colombia' & vparty$opp2me == 'Conserv.'] <- 'PCC'
+vparty$opp3me[vparty$country_name == 'Colombia' & vparty$opp3me == 'Conserv.'] <- 'PCC'
+vparty$v2pashname_fix[vparty$country_name == 'Colombia' & vparty$v2pashname == 'PCC' & vparty$year == 1990] <- 'PSC'
+vparty$v2pashname_fix[vparty$country_name == 'Colombia' & vparty$v2pashname == 'PLC'] <- 'PL'
+vparty$v2pashname_fix[vparty$country_name == 'Colombia' & vparty$v2pashname == 'Partido-U'] <- 'PSUN'
+# Brazil
+vparty$v2pashname_fix[vparty$country_name == 'Brazil' & vparty$v2pashname == 'PPB'] <- 'PP'
+# Portugal
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'PPD/PSD'] <- 'PSD' 
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'PPD/PSD' & vparty$year == 1976] <- 'PPD' 
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'PPD/PSD'& vparty$year == 2015] <- 'PSD/CDS-PP' #PRT 2015 PPD/PSD
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'AD'] <- 'AD (PSD+CDS)'
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'CDS / PP' & vparty$year >= 1992 & vparty$year < 2005] <- 'PP'
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'CDS / PP' & vparty$year < 1992] <- 'CDS'
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'CDS / PP' & vparty$year >= 2005] <- 'CDS-PP'
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'PCP' & vparty$year >= 1983] <- 'APU'
+vparty$v2pashname_fix[vparty$country_name == 'Portugal' & vparty$v2pashname == 'CDU' & vparty$year >= 2013] <- 'PCP-PEV'
+# Honduras
+vparty$v2pashname_fix[vparty$country_name == 'Honduras' & vparty$v2pashname == 'PLH'] <- 'PL'
+vparty$v2pashname_fix[vparty$country_name == 'Honduras' & vparty$v2pashname == 'PNH'] <- 'PN'
+# Pakistan
+vparty$v2pashname_fix[vparty$country_name == 'Pakistan' & vparty$v2pashname == 'PPP' & vparty$year >=2003] <- 'PPPP'
+vparty$v2pashname_fix[vparty$country_name == 'Pakistan' & vparty$v2pashname == 'PML(Q)'] <- 'PML-Q' # boycott of election?
+vparty$v2pashname_fix[vparty$country_name == 'Pakistan' & vparty$v2pashname == 'PPP' & vparty$year >= 1990 & vparty$year <= 1993] <- 'PDA' # 1993, 1990 alliances
+vparty$v2panaallian_fix[vparty$country_name == 'Pakistan' & vparty$v2pashname == 'PML(N)' & (vparty$year >= 1993)] <- 'PML-N' # 1997
+vparty$v2pashname_fix[vparty$country_name == 'Pakistan' & vparty$v2pashname == 'PML(N)' & (vparty$year >= 1993)] <- 'PML' # 1997
+vparty$v2pashname_fix[vparty$country_name == 'Pakistan' & vparty$v2pashname == 'PML(N)' & vparty$year == 1993] <- 'IJI' # 1993 alliances
+# Taiwan
+vparty$v2pashname_fix[vparty$country_name == 'Taiwan' & vparty$v2pashname == 'DDP'] <- 'DPP'
+vparty$v2pashname_fix[vparty$country_name == 'Taiwan' & vparty$v2pashname == 'C/NP'] <- 'New Party'
+# Canada
+vparty$v2pashname_fix[vparty$country_name == 'Canada' & vparty$v2pashname == 'RPC'] <- 'Reform P.'
+vparty$v2panaallian_fix[vparty$country_name == 'Canada' & vparty$v2pashname == 'RPC' & vparty$year == 2000] <- 'Canadian Alliance'
+vparty$v2pashname_fix[vparty$country_name == 'Canada' & vparty$v2pashname == 'LP'] <- 'LPC'
+# Chile
+vparty$v2panaallian_fix[vparty$country_name == 'Chile' & vparty$v2panaallian == 'Concert of Parties for Democracy'] <- 'CPD'
+vparty$v2panaallian_fix[vparty$country_name == 'Chile' & vparty$v2panaallian == 'Concert & Together We Can for more democracy'] <- 'CPD'
+vparty$v2panaallian_fix[vparty$country_name == 'Chile' & vparty$v2panaallian == 'Coalition for Change'] <- 'CC'
+vparty$v2pashname_fix[vparty$country_name == 'Chile' & vparty$v2pashname == 'RN'] <- 'PRN'
+vparty$v2panaallian_fix[vparty$country_name == 'Chile' & vparty$v2panaallian == 'Chile Vamos'] <- 'LetÕs Go Chile'
+vparty$v2panaallian_fix[vparty$country_name == 'Chile' & vparty$v2panaallian == 'Alliance for Chile'] <- 'Alianza por Chile'
+vparty$v2panaallian_fix[vparty$country_name == 'Chile' & vparty$v2panaallian == 'The Force of the Majority/Democratic Convergence'] <- 'Democratic Convergence'
+vparty$v2panaallian_fix[vparty$country_name == 'Chile' & vparty$v2pashname == 'RN' & vparty$year >= 2005 & vparty$year < 2009] <- 'Alianza por Chile'
+vparty$v2panaallian_fix[vparty$country_name == 'Chile' & vparty$v2pashname == 'UDI' & vparty$year >= 2005 & vparty$year < 2009] <- 'Alianza por Chile'
+# Indonesia
+vparty$v2pashname_fix[vparty$country_name == 'Indonesia' & vparty$v2pashname == 'PDIP'] <- 'PDI-P'
+# Ireland
+vparty$v2pashname_fix[vparty$country_name == 'Ireland' & vparty$v2pashname == 'Lab'] <- 'Labour'
+vparty$v2pashname_fix[vparty$country_name == 'Ireland' & vparty$v2pashname == 'FF'] <- 'Fianna Fail'
+vparty$v2pashname_fix[vparty$country_name == 'Ireland' & vparty$v2pashname == 'FG'] <- 'Fine Gael'
+vparty$v2pashname_fix[vparty$country_name == 'Ireland' & vparty$v2pashname == 'SF'] <- 'Sinn Fein'
+# Spain
+vparty$v2pashname_fix[vparty$country_name == 'Spain' & vparty$v2pashname == 'AP / PP' & vparty$year >= 1989] <- 'PP'
+vparty$v2pashname_fix[vparty$country_name == 'Spain' & vparty$v2pashname == 'AP / PP' & vparty$year < 1989] <- 'AP'
+vparty$v2pashname_fix[vparty$country_name == 'Spain' & vparty$v2pashname == 'AP / PP' & vparty$year ==1982] <- 'AP/PSP'
+vparty$v2pashname_fix[vparty$country_name == 'Spain' & vparty$v2pashname == 'PSOE' & vparty$year < 2000 & vparty$year >= 1986 & vparty$year != 1996] <- 'PSOE/PSC'
+# Mozambique
+vparty$v2pashname_fix[vparty$country_name == 'Mozambique' & vparty$v2pashname == 'FRELIMO'] <- 'Frelimo'
+vparty$v2pashname_fix[vparty$country_name == 'Mozambique' & vparty$v2pashname == 'RENAMO'] <- 'Renamo'
+# Australia
+vparty$v2pashname_fix[vparty$country_name == 'Australia' & vparty$v2pashname == 'ACP-NPA'] <- 'NPA'
+vparty$v2pashname_fix[vparty$country_name == 'Australia' & vparty$v2pashname == 'LNPQ'] <- 'LNP'
+# Ecuador
+vparty$v2pashname_fix[vparty$country_name == 'Ecuador' & vparty$v2pashname == 'UDC/DP' & vparty$year >=1997 & vparty$year <= 1998] <- 'DP'
+# Guatemala
+vparty$v2pashname_fix[vparty$country_name == 'Guatemala' & vparty$v2pashname == 'DCG'] <- 'PDCG'
+vparty$v2pashname_fix[vparty$country_name == 'Guatemala' & vparty$v2pashname == 'FCN'] <- 'FCN Nacion'
+vparty$v2pashname_fix[vparty$country_name == 'Guatemala' & vparty$v2pashname == 'T'] <- 'TODOS'
+# United Kingdom
+vparty$v2pashname_fix[vparty$country_name == 'United Kingdom' & vparty$v2pashname == 'Lib'] <- 'Liberal'
+vparty$v2pashname_fix[vparty$country_name == 'United Kingdom' & vparty$v2pashname == 'Lab'] <- 'Labour'
+vparty$v2pashname_fix[vparty$country_name == 'United Kingdom' & vparty$v2pashname == 'Con'] <- 'Conservative'
+# Hungary
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'Fidesz'] <- "FiDeSz"
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'Fidesz' & vparty$year >=2014 & vparty$year <= 2018] <- 'FiDeSz-CDPP'
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'Fidesz' & vparty$year == 2006] <- 'FiDeSz-MPSz-KDNP'
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'Fidesz' & vparty$year == 2002] <- 'FiDeSz'
+vparty$v2panaallian_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'Fidesz' & vparty$year == 2002] <- 'FiDeSz-MPSz-MDF'
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'KDNP' & vparty$year == 2006] <- 'FiDeSz-MPSz-KDNP'
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'MSZP'] <- 'MSzP'
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'MSZP' & vparty$year >=2006 & vparty$year < 2014] <- 'MSzP-SzDSz'
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'MSZP' & vparty$year >=2014 & vparty$year <= 2018] <- 'MszP-PM'
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'SzDSz' & vparty$year ==2006] <- 'MSzP-SzDSz'
+vparty$v2panaallian_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'Fidesz‚ÄìKDNP'] <- 'FiDeSz-CDPP'
+vparty$v2panaallian_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'Fidesz' & vparty$year == 2010] <- 'FiDeSz-CDPP' 
+vparty$v2pashname_fix[vparty$country_name == 'Hungary' & vparty$v2pashname == 'Fidesz' & vparty$year == 2010] <- 'FiDeSz-MPSz' 
+# New Zealand 
+vparty$v2pashname_fix[vparty$country_name == 'New Zealand' & vparty$v2pashname == 'NP'] <- 'National Party'
+vparty$v2pashname_fix[vparty$country_name == 'New Zealand' & vparty$v2pashname == 'LP'] <- 'Labour Party'
+vparty$v2pashname_fix[vparty$country_name == 'New Zealand' & vparty$v2pashname == 'Greens'] <- 'Green'
+vparty$v2pashname_fix[vparty$country_name == 'New Zealand' & vparty$v2pashname == 'NZFP'] <- 'NZ First'
+# Malta 
+vparty$v2pashname_fix[vparty$country_name == 'Malta' & vparty$v2pashname == 'PN'] <- 'NP'
+# Argentina 
+vparty$v2pashname_fix[vparty$country_name == 'Argentina' & vparty$v2pashname == 'FREPASO'] <- 'Frepaso'
+vparty$v2pashname_fix[vparty$country_name == 'Argentina' & vparty$v2pashname == 'FPV-PJ'] <- 'FPV'
+vparty$v2panaallian_fix[vparty$country_name == 'Argentina' & vparty$v2pashname == 'FPV-PJ'] <- 'PJ'
+vparty$v2pashname_fix[vparty$country_name == 'Argentina' & vparty$v2pashname == 'PJ' & vparty$year <= 1984] <- 'FJDL'
+vparty$v2pashname_fix[vparty$country_name == 'Argentina' & vparty$v2panaallian == 'Aliance for Work, Justice, and Education' & vparty$year > 1997] <- 'ATJE'
+vparty$v2pashname_fix[vparty$country_name == 'Argentina' & vparty$v2pashname == 'UCR' & vparty$year > 1997 & vparty$year <= 2001] <- 'ATJE'
+vparty$v2panaallian_fix[vparty$country_name == 'Argentina' & vparty$v2panaallian == 'Aliance for Work, Justice, and Education' & vparty$year <= 1997] <- 'UCR/Frepaso'
+# Italy
+vparty$v2panaallian_fix[vparty$country_name == 'Italy' & vparty$v2panaallian == 'House of Freedoms'] <- 'Casa delle Liberta'
+vparty$v2panaallian_fix[vparty$country_name == 'Italy' & vparty$v2panaallian == 'The Union'] <- "L'Unione" # apostrophe
+vparty$v2panaallian_fix[vparty$country_name == 'Italy' & vparty$v2panaallian == 'The Olive Tree'] <- 'Ulivo Alliance'
+vparty$v2panaallian_fix[vparty$country_name == 'Italy' & vparty$v2panaallian == 'The Olive Tree' & vparty$year == 2001] <- "L'Ulivo"
+vparty$v2panaallian_fix[vparty$country_name == 'Italy' & vparty$v2panaallian == 'Pact for Italy'] <- 'Pact of Italy'
+vparty$v2panaallian_fix[vparty$country_name == 'Italy' & vparty$v2panaallian == 'Pole for Freedoms'] <- 'Polo per le Liberta'
+vparty$v2pashname_fix[vparty$country_name == 'Italy' & vparty$v2pashname == 'PCI'] <- 'Communist'
+vparty$v2pashname_fix[vparty$country_name == 'Italy' & vparty$v2pashname == 'PSI'] <- 'Socialists'
+vparty$v2pashname_fix[vparty$country_name == 'Italy' & vparty$v2pashname == 'IPdL'] <- 'PdL'
+# Guyana 
+vparty$v2pashname_fix[vparty$country_name == 'Guyana' & vparty$v2pashname == 'PPP' & vparty$year >= 1991] <- 'PPP/C'
+vparty$v2pashname_fix[vparty$country_name == 'Guyana' & vparty$v2pashname == 'PPP' & (vparty$year == 1992 | vparty$year == 1997)] <- 'PPP'
+vparty$v2pashname_fix[vparty$country_name == 'Guyana' & vparty$v2pashname == 'PNC' & vparty$year >= 2001 & vparty$year <= 2006] <- 'PNCR-1G'
+vparty$v2panaallian_fix[vparty$country_name == 'Guyana' & vparty$v2panaallian == 'APNU+AFC'] <- 'APNU-AFC'
+vparty$v2pashname_fix[vparty$country_name == 'Guyana' & vparty$v2pashname == 'APNU' & vparty$year == 2011] <- 'PNU'
+# Peru 
+vparty$v2pashname_fix[vparty$country_name == 'Peru' & vparty$v2pashname == 'APRA/PAP' & vparty$year >= 2006] <- 'PAP'
+vparty$v2pashname_fix[vparty$country_name == 'Peru' & vparty$v2pashname == 'APRA/PAP' & vparty$year < 2006] <- 'APRA'
+vparty$v2pashname_fix[vparty$country_name == 'Peru' & vparty$v2pashname == 'IU'] <- 'United Left'
+vparty$v2pashname_fix[vparty$country_name == 'Peru' & vparty$v2pashname == 'Frente Amplio'] <- 'FA'
+vparty$v2panaallian_fix[vparty$country_name == 'Peru' & vparty$v2panaallian == 'Alianza Electoral Per√∫ Posible'] <- 'Peru Posible'
+vparty$v2pashname_fix[vparty$country_name == 'Peru' & vparty$v2pashname == 'FP' & vparty$year >= 2006] <- 'Fuerza 2011'
+vparty$v2pashname_fix[vparty$country_name == 'Peru' & vparty$v2pashname == 'PNP' & vparty$year == 2011] <- 'Gana Peru'
+vparty$v2pashname_fix[vparty$country_name == 'Peru' & vparty$v2pashname == 'Alianza Por ...'] <- 'Alianza Por El Gran Cambio'
+# Poland 
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'K'] <- "Kukiz'15" # apostrophe
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'PO' & vparty$year >= 2019] <- "KO"
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'SLD' & vparty$year < 1993] <- "Dem. Left Alliance"
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'SLD' & vparty$year >= 2019] <- "Lewica"
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'SLD' & (vparty$year == 2001)] <- "SLD-UP"
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'UW-PD'] <- "UW" 
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'UW-PD' & vparty$year == 1991] <- "UD"
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'ZChN'] <- "ZCH-N" 
+vparty$v2pashname_fix[vparty$country_name == 'Poland' & vparty$v2pashname == 'SRP'] <- "SDBRP" 
+# Turkey 
+vparty$v2pashname_fix[vparty$country_name == 'Turkey' & vparty$v2pashname == 'ANAP'] <- "Motherland"
+vparty$v2pashname_fix[vparty$country_name == 'Turkey' & vparty$v2pashname == 'AP'] <- "Justice P."
+vparty$v2pashname_fix[vparty$country_name == 'Turkey' & vparty$v2pashname == 'HP'] <- "Populist"
+vparty$v2pashname_fix[vparty$country_name == 'Turkey' & vparty$v2pashname == 'CHP' & vparty$year <= 1980] <- "RPP"
+vparty$v2pashname_fix[vparty$country_name == 'Turkey' & vparty$v2pashname == 'CHP' & vparty$year >= 1980 & vparty$year <= 1986] <- "Populist"
+vparty$v2pashname_fix[vparty$country_name == 'Turkey' & vparty$v2pashname == 'SHP' & vparty$year >= 1991 & vparty$year <= 1995] <- "SHP/IP"
+vparty$v2pashname_fix[vparty$country_name == 'Turkey' & vparty$v2pashname == 'CHP' & vparty$year == 1987] <- "SHP"
+# Senegal 
+vparty$v2pashname_fix[vparty$country_name == 'Senegal' & vparty$v2pashname == 'PDS' & vparty$year >= 2000 & vparty$year <= 2001] <- "Sopi Coalition"
+vparty$v2pashname_fix[vparty$country_name == 'Senegal' & vparty$v2pashname == 'PS/UPS'] <- "PS"
+vparty$v2pashname_fix[vparty$country_name == 'Senegal' & vparty$v2pashname == 'APR'] <- "APR-Yakaar"
+vparty$v2panaallian_fix[vparty$country_name == 'Senegal' & vparty$v2panaallian == 'United in Hope coalition'] <- 'BBY'
+vparty$v2panaallian_fix[vparty$country_name == 'Senegal' & vparty$v2panaallian == 'Benno Bokk Yakaar Coalition'] <- 'BBY' 
+vparty$v2panaallian_fix[vparty$country_name == 'Senegal' & vparty$v2panaallian == 'Winning Coalition Wattu Senegal'] <- 'BBY' 
+# Paraguay 
+vparty$v2pashname_fix[vparty$country_name == 'Paraguay' & vparty$v2pashname == 'ANR-PC'] <- "Colorado"
+vparty$v2pashname_fix[vparty$country_name == 'Paraguay' & vparty$v2pashname == 'PPQ'] <- "PQ"
+vparty$v2pashname_fix[vparty$country_name == 'Paraguay' & vparty$v2pashname == 'UNACE'] <- "UNCE"
+# Fiji 
+vparty$v2pashname_fix[vparty$country_name == 'Fiji' & vparty$v2pashname == 'FF'] <- "FijiFirst"
+vparty$v2pashname_fix[vparty$country_name == 'Fiji' & vparty$v2pashname == 'AP'] <- "Alliance"
+vparty$v2pashname_fix[vparty$country_name == 'Fiji' & vparty$v2pashname == 'SDLP'] <- "SODELPA"
+vparty$v2pashname_fix[vparty$country_name == 'Fiji' & vparty$v2pashname == 'NFP-F'] <- "Nat. Federation F."
+vparty$v2pashname_fix[vparty$country_name == 'Fiji' & vparty$v2pashname == 'NFP-D'] <- "Nat. Fed. P" # FNP Nationalist, see 1977 election
+vparty$v2pashname_fix[vparty$country_name == 'Fiji' & vparty$v2pashname == 'NFP'] <- "Nat. Fed. P"
+# South Korea 
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'Uri'] <- "Uri Party"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'HD-SD' & vparty$year < 2012] <- "GNP"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'HD-SD' & vparty$year >= 2012 & vparty$year < 2016] <- "NFP"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'MK/SH' & vparty$year == 1996] <- "NKP"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'MK/SH' & vparty$year == 1992] <- "DLP"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'PPD'] <- "PDP"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'DPK'] <- "Minjoo"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'LFP / AUP'] <- "LFP"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'MD'] <- "UDP"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'NUP'] <- "UPP"
+vparty$v2pashname_fix[vparty$country_name == 'South Korea' & vparty$v2pashname == 'LKP' & vparty$year >= 2016] <- "NFP" # Saenuri Party (New Frontier Party)
+# Georgia 
+vparty$v2pashname_fix[vparty$country_name == 'Georgia' & vparty$v2pashname == 'ENM'] <- "UNM"
+vparty$v2pashname_fix[vparty$country_name == 'Georgia' & vparty$v2pashname == 'GD'] <- "GD-DG"
+vparty$v2pashname_fix[vparty$country_name == 'Georgia' & vparty$v2pashname == 'United Oppos...'] <- "Joint Opposition"
+# Philippines 
+vparty$v2pashname_fix[vparty$country_name == 'Philippines' & vparty$v2pashname == 'Lakas-CMD' & vparty$year != 2010] <- "Lakas N"
+vparty$v2pashname_fix[vparty$country_name == 'Philippines' & vparty$v2pashname == 'KMB'] <- "NPC"
+vparty$v2pashname_fix[vparty$country_name == 'Philippines' & vparty$v2pashname == 'PLP'] <- "LP"
+vparty$v2pashname_fix[vparty$country_name == 'Philippines' & vparty$v2pashname == 'PNP'] <- "NP"
+vparty$v2pashname_fix[vparty$country_name == 'Philippines' & vparty$v2pashname == 'LAMMP'] <- "LaMMP"
+vparty$v2pashname_fix[vparty$country_name == 'Philippines' & vparty$v2pashname == 'Lakas-NUCD/ LDP'] <- "Lakas N"
+vparty$v2pashname_fix[vparty$country_name == 'Philippines' & vparty$v2pashname == 'UNIDO'] <- "Unido"
+vparty$v2panaallian_fix[vparty$country_name == 'Philippines' & vparty$v2panaallian == 'LABAN coalition'] <- "LDP/Allies"
+# Uganda 
+vparty$v2pashname_fix[vparty$country_name == 'Uganda' & vparty$v2pashname == 'DP'] <- "Dem. Party"
+# Trinidad and Tobago
+vparty$v2pashname_fix[vparty$country_name == 'Trinidad and Tobago' & vparty$v2pashname == 'NAR' & vparty$year == 1981] <- "TTNA"
+# Germany 
+vparty$v2panaallian_fix[vparty$country_name == 'Germany' & vparty$v2panaallian == 'Christian Democratic Union / Christian Social Union(CDU/CSU)'] <- "CDU/CSU"
+# El Salvador 
+vparty$v2pashname_fix[vparty$country_name == 'El Salvador' & vparty$v2pashname == 'PCN' & vparty$year >= 2013] <- "CN"
+# Bangladesh 
+vparty$v2pashname_fix[vparty$country_name == 'Bangladesh' & vparty$v2pashname == 'BAL'] <- "AL"
+# Bolivia 
+vparty$v2pashname_fix[vparty$country_name == 'Bolivia' & vparty$v2pashname == 'MNR' & vparty$year >= 1983 & vparty$year <= 1990] <- "MNRH"
+vparty$v2pashname_fix[vparty$country_name == 'Bolivia' & vparty$v2pashname == 'Podemos'] <- "PODEMOS"
+vparty$v2pashname_fix[vparty$country_name == 'Bolivia' & vparty$v2pashname == 'CONDEPA'] <- "Condepa"
+# South Africa 
+vparty$v2pashname_fix[vparty$country_name == 'South Africa' & vparty$v2pashname == 'EEF'] <- "EFF"
+vparty$v2pashname_fix[vparty$country_name == 'South Africa' & vparty$v2pashname == 'NP'] <- "National Party" #1994
+# India
+vparty$v2pashname_fix[vparty$country_name == 'India' & vparty$v2pashname == 'BJP' & vparty$year >= 2004 & vparty$year <= 2013] <- "NDA"
+vparty$v2pashname_fix[vparty$country_name == 'India' & vparty$v2pashname == 'JP'] <- "Lok Dal"
+vparty$v2pashname_fix[vparty$country_name == 'India' & vparty$v2pashname == 'JNP'] <- "Janata Party"
+vparty$v2pashname_fix[vparty$country_name == 'India' & vparty$v2pashname == 'INC' & vparty$year <= 1979] <- "Congress"
+vparty$v2panaallian_fix[vparty$country_name == 'India' & vparty$v2pashname == 'INC' & vparty$year == 2009] <- "UDA"
+vparty$v2pashname_fix[vparty$country_name == 'India' & vparty$v2pashname == 'JD' & vparty$year == 1989] <- "National Front"
+vparty$v2pashname_fix[vparty$country_name == 'India' & vparty$v2pashname == 'CPI(M)' & vparty$year <= 1989] <- "M-Communist"
+vparty$v2pashname_fix[vparty$country_name == 'India' & vparty$v2pashname == 'CPI(M)' & vparty$year >= 1990] <- "CPI-M"
+# Thailand 
+vparty$v2pashname_fix[vparty$country_name == 'Thailand' & vparty$v2pashname == 'PP'] <- "DP"
+vparty$v2pashname_fix[vparty$country_name == 'Thailand' & vparty$v2pashname == 'PCT'] <- "Chart Thai"
+vparty$v2pashname_fix[vparty$country_name == 'Thailand' & vparty$v2pashname == 'PKS'] <- "Social Action"
+# Benin 
+vparty$v2pashname_fix[vparty$country_name == 'Benin' & vparty$v2pashname == 'FARD'] <- "FARD- Alafia"
+vparty$v2pashname_fix[vparty$country_name == 'Benin' & vparty$v2pashname == 'UTRD'] <- 'UTDR'
+vparty$v2panaallian_fix[vparty$country_name == 'Benin' & vparty$v2panaallian == 'Alliance RB-RP (Benin Rebirth Party-Patriotic Revival Party)'] <- "RB-PRP"
+# Indonesia 
+vparty$v2pashname_fix[vparty$country_name == 'Indonesia' & vparty$v2pashname == 'Gerindra'] <- "Gerinda"
+vparty$v2pashname_fix[vparty$country_name == 'Indonesia' & vparty$v2pashname == 'Nasdem'] <- "NasDem"
+# Nepal
+vparty$v2pashname_fix[vparty$country_name == 'Nepal' & vparty$v2pashname == 'CPN-UML' & vparty$year <= 2002] <- "UML"
+vparty$v2pashname_fix[vparty$country_name == 'Nepal' & vparty$v2pashname == 'CPN-UML' & vparty$year >= 2008] <- "CPN (UML)"
+# Nicaragua 
+vparty$v2pashname_fix[vparty$country_name == 'Nicaragua' & vparty$v2pashname == 'Liberal Alli...'] <- "AL"
+# Niger 
+vparty$v2pashname_fix[vparty$country_name == 'Niger' & vparty$v2pashname == 'MODEN/FA'] <- "MODEN"
+vparty$v2pashname_fix[vparty$country_name == 'Niger' & vparty$v2pashname == 'MNSD-N' & (vparty$year == 2004|vparty$year == 1999)] <- "MNSD"
+# Burundi 
+vparty$v2pashname_fix[vparty$country_name == 'Burundi' & vparty$v2pashname == 'FRODEBU'] <- "Frodebu"
+# Costa Rica 
+vparty$v2pashname_fix[vparty$country_name == 'Costa Rica' & vparty$v2pashname == 'PRN'] <- "RN"
+vparty$v2pashname_fix[vparty$country_name == 'Costa Rica' & vparty$v2pashname == 'UC' & vparty$year <= 1978] <- "PUO"
+vparty$v2pashname_fix[vparty$country_name == 'Costa Rica' & vparty$v2pashname == 'UC' & vparty$year >= 1979] <- "CU"
+vparty$v2panaallian_fix[vparty$country_name == 'Costa Rica' & vparty$v2pashname == 'UC'] <- "CU Unity Coalition"
+# France
+vparty$v2pashname_fix[vparty$country_name == 'France' & vparty$v2pashname == 'PCF'] <- "Communist"
+vparty$v2pashname_fix[vparty$country_name == 'France' & vparty$v2pashname == 'PS' & vparty$year == 1981] <- "PS/MRG"
+# Germany
+vparty$v2pashname_fix[vparty$country_name == 'Germany' & vparty$v2pashname == 'Linke'] <- "Left"
+vparty$v2pashname_fix[vparty$country_name == 'Germany' & vparty$v2pashname == 'B90/Grue'] <- "Alliance90/Greens"
+# Latvia
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'V' & vparty$year <= 2012] <- "Unity"
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'V' & vparty$year > 2012] <- "UNITY" 
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'NA/TB/LNNK'] <- "TB/LNNK"
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'NA/TB/LNNK' & vparty$year >= 2011 & vparty$year <= 2014] <- "NA-VL-TB/LNNK"
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'LSDSP'] <- "LSP"
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'TKL-ZP'] <- "PML"
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'JKP'] <- "JKV"
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'TB' & vparty$year <= 1997] <- "UFF"
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'LPP/LC'] <- "LPP-LC"
+vparty$v2pashname_fix[vparty$country_name == 'Latvia' & vparty$v2pashname == 'PCTVL'] <- "LSP-NHP"
+# Lesotho
+vparty$v2pashname_fix[vparty$country_name == 'Lesotho' & vparty$v2pashname == 'LeCofoDe'] <- "LCD"
+# Malawi
+vparty$v2pashname_fix[vparty$country_name == 'Malawi' & vparty$v2pashname == 'AFORD'] <- "Aford"
+# Mongolia
+vparty$v2pashname_fix[vparty$country_name == 'Mongolia' & vparty$v2pashname == 'MAN' & vparty$year <= 2012] <- "MPRP"
+vparty$v2pashname_fix[vparty$country_name == 'Mongolia' & vparty$v2pashname == 'MAN' & vparty$year > 2012] <- "MPP"
+vparty$v2pashname_fix[vparty$country_name == 'Mongolia' & vparty$v2pashname == 'AN' & vparty$year <= 2003] <- "MNDP"
+vparty$v2pashname_fix[vparty$country_name == 'Mongolia' & vparty$v2pashname == 'AN' & vparty$year >= 2004] <- "DP"
+# Panama
+vparty$v2pashname_fix[vparty$country_name == 'Panama' & vparty$v2pashname == 'PPA' & vparty$year >= 1990] <- "PRD"
+vparty$v2pashname_fix[vparty$country_name == 'Panama' & vparty$v2pashname == 'MOLIRENA'] <- "Molirena"
+vparty$v2panaallian_fix[vparty$country_name == 'Panama' & vparty$v2pashname == 'CD' & vparty$year == 2009] <- "AC" # Alliance for Change
+# Mauritius
+vparty$v2panaallian_fix[vparty$country_name == 'Mauritius' & vparty$v2panaallian == 'Alliance MSM - MMM'] <- "MSM-MMM"
+vparty$v2pashname_fix[vparty$country_name == 'Mauritius' & vparty$v2panaallian == 'MSM / MLP / PMSD'] <- "MSM"
+vparty$v2panaallian_fix[vparty$country_name == 'Mauritius' & vparty$v2panaallian == 'MSM / MLP / PMSD'] <- "MSM/Labour"
+vparty$v2pashname_fix[vparty$country_name == 'Mauritius' & vparty$v2panaallian == 'Alliance (MSM / Labour)'] <- "MSM"
+vparty$v2panaallian_fix[vparty$country_name == 'Mauritius' & vparty$v2pashname == 'IP'] <- "IP"
+vparty$v2pashname_fix[vparty$country_name == 'Mauritius' & vparty$v2pashname == 'IP'] <- "Labour"
+vparty$v2pashname_fix[vparty$country_name == 'Mauritius' & vparty$v2pashname == 'PT' & vparty$year == 1995] <- "MLP"
+vparty$v2panaallian_fix[vparty$country_name == 'Mauritius' & vparty$v2pashname == 'PTR-MMM' & vparty$year == 2014] <- "MLP-MMM"
+# Ukraine
+vparty$v2pashname_fix[vparty$country_name == 'Ukraine' & vparty$v2pashname == 'BYuT'] <- "BYT"
+vparty$v2pashname_fix[vparty$country_name == 'Ukraine' & vparty$v2pashname == 'NUNS' & vparty$year <= 2006] <- "NSNU"
+vparty$v2pashname_fix[vparty$country_name == 'Ukraine' & vparty$v2pashname == 'NUNS' & vparty$year >= 2007] <- "NU-NS"
+vparty$v2pashname_fix[vparty$country_name == 'Ukraine' & vparty$v2pashname == 'NUNS' & vparty$year == 2002] <- "OU"
+vparty$v2pashname_fix[vparty$country_name == 'Ukraine' & vparty$v2pashname == 'KPU' & vparty$year <= 2006] <- "CPU"
+vparty$v2pashname_fix[vparty$country_name == 'Ukraine' & vparty$v2pashname == 'ZYU'] <- "FUU"
+vparty$v2pashname_fix[vparty$country_name == 'Ukraine' & vparty$v2pashname == 'SN'] <- "Servant of the People"
+# Uruguay
+vparty$v2pashname_fix[vparty$country_name == 'Uruguay' & vparty$v2pashname == 'PC'] <- "Colorado"
+vparty$v2pashname_fix[vparty$country_name == 'Uruguay' & vparty$v2pashname == 'FA/EP' & vparty$year < 2003] <- "EP"
+vparty$v2pashname_fix[vparty$country_name == 'Uruguay' & vparty$v2pashname == 'FA/EP' & vparty$year >= 2004] <- "EP-FA"
+# Gambia
+vparty$v2pashname_fix[vparty$country_name == 'The Gambia' & vparty$v2pashname == 'UDP'] <- "UDC"
+# Madagascar
+vparty$v2pashname_fix[vparty$country_name == 'Madagascar' & vparty$v2pashname == 'MAPAR / IRD'] <- "IRD"
+vparty$v2panaallian_fix[vparty$country_name == 'Madagascar' & vparty$v2panaallian == 'National Union (FP)'] <- "FP"
+# Moldova
+# Note: 1998 elections has MMDP as both opposition and gov?
+vparty$v2pashname_fix[vparty$country_name == 'Moldova' & vparty$v2pashname == 'PCRM' & vparty$year == 1998] <- "PCM"
+vparty$v2pashname_fix[vparty$country_name == 'Moldova' & vparty$v2pashname == 'CDM'] <- "MMDP"
+vparty$v2panaallian_fix[vparty$country_name == 'Moldova' & vparty$v2pashname == 'BEAB'] <- "Braghis Alliance"
+vparty$v2panaallian_fix[vparty$country_name == 'Moldova' & vparty$v2pashname == 'PAS' & vparty$year == 2019] <- "ACUM"
+vparty$v2pashname_fix[vparty$country_name == 'Moldova' & vparty$v2panaallian == "Electoral Bloc of the Socialist Party and the Movement ‚ÄòUnity'"] <- "PS"
+# Austria
+vparty$v2pashname_fix[vparty$country_name == 'Austria' & vparty$v2pashname == 'GRUENE' & vparty$year <= 2008] <- "GAL"
+vparty$v2pashname_fix[vparty$country_name == 'Austria' & vparty$v2pashname == 'GRUENE' & vparty$year > 2008] <- "DG"
+# Belgium
+# Note: check 2007 election
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'PVV-OVLD' & vparty$year < 1981] <- "Freedom & Prog"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'PVV-OVLD' & vparty$year >= 1981 & vparty$year <= 1994] <- "PVV"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'PVV-OVLD' & vparty$year >= 1995] <- "VLD"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'N-VA' & vparty$year == 2019] <- "NV-A"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'PS' & vparty$year <= 1985] <- "Socialist"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'CVP' & vparty$year >= 2003] <- "CD&V"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'CVP' & vparty$year <= 1978] <- "CSP"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'SPA' & vparty$year <= 1995] <- "SP"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'SPA' & vparty$year <= 1985] <- "Socialist"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'VB' & vparty$year == 2019] <- "Vlaam Belang"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'BSP-PSB'] <- "Socialist"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'PRL' & vparty$year == 1999] <- "PRL-FDF"
+vparty$v2pashname_fix[vparty$country_name == 'Belgium' & vparty$v2pashname == 'PSC' & vparty$year <= 1978] <- "CDH"
+# Bosnia and Herzegovina
+vparty$v2pashname_fix[vparty$country_name == 'Bosnia and Herzegovina' & vparty$v2pashname == 'SDP-BiH' & vparty$year <= 2006]<- "SBiH" 
+vparty$v2pashname_fix[vparty$country_name == 'Bosnia and Herzegovina' & vparty$v2pashname == 'SDP-BiH' & vparty$year >= 2010]<- "SDP"
+vparty$v2pashname_fix[vparty$country_name == 'Bosnia and Herzegovina' & vparty$v2pashname == 'DF'] <- "Democratic Front"
+vparty$v2pashname_fix[vparty$country_name == 'Bosnia and Herzegovina' & vparty$v2pashname == 'HDZ-BiH'] <- "HDZ-HNZ"
+# Bulgaria
+vparty$v2pashname_fix[vparty$country_name == 'Bulgaria' & vparty$v2pashname == 'NDSV'] <- "NMSII"
+vparty$v2pashname_fix[vparty$country_name == 'Bulgaria' & vparty$v2pashname == 'KzB/BSP'] <- "BSP"
+vparty$v2pashname_fix[vparty$country_name == 'Bulgaria' & vparty$v2pashname == 'KzB/BSP' & (vparty$year == 1994 | vparty$year == 1997)] <- "BSP/Allies"
+vparty$v2pashname_fix[vparty$country_name == 'Bulgaria' & vparty$v2pashname == 'KzB/BSP' & (vparty$year == 2005 | vparty$year == 2009)] <- "KZB"
+vparty$v2panaallian_fix[vparty$country_name == 'Bulgaria' & vparty$v2panaallian == 'Coalition for Bulgaria | Democratic Left' & (vparty$year == 2001)] <- "CB"
+vparty$v2pashname_fix[vparty$country_name == 'Bulgaria' & vparty$v2pashname == 'NFSB'] <- "OP"
+vparty$v2pashname_fix[vparty$country_name == 'Bulgaria' & vparty$v2pashname == 'ODS' & (vparty$year == 1997 | vparty$year == 2001)] <- "SDS"
+vparty$v2panaallian_fix[vparty$country_name == 'Bulgaria' & vparty$v2pashname == 'ODS' & (vparty$year == 1997 | vparty$year == 2001)] <- "ODS"
+# Croatia
+vparty$v2panaallian_fix[vparty$country_name == 'Croatia' & vparty$v2panaallian == 'SDP/IDS/LS/Libra'] <- "SDP-LP-IDA"
+vparty$v2panaallian_fix[vparty$country_name == 'Croatia' & vparty$v2panaallian == 'Kukuriku coalition'] <- "KUKURIKU"
+vparty$v2pashname_fix[vparty$country_name == 'Croatia' & vparty$v2panaallian == "People's Coalition" & vparty$year == 2016] <- "SDP"
+vparty$v2pashname_fix[vparty$country_name == 'Croatia' & vparty$v2pashname == 'HDZ Coalition'] <- "HDZ"
+vparty$v2pashname_fix[vparty$country_name == 'Croatia' & vparty$v2pashname == 'Most'] <- "BIL"
+# Czech Republic
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'TOP09' & vparty$year <= 2012] <- "TOP"
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'TOP09' & vparty$year == 2013] <- "TOP 09"
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'ODS' & vparty$year <= 2005] <- "ODS/KDS"
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'KSCM' & vparty$year < 1996] <- "KSCM/Left Block"
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'KSCM' & vparty$year >= 1996 & vparty$year < 2006] <- "Communist"
+vparty$v2panaallian_fix[vparty$country_name == 'Czech Republic' & vparty$v2panaallian == 'Coalition (Koalice)'] <- "Coalition"
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'OF'] <- "Civic F."
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'HSD/SMS'] <- "MV"
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'Pi'] <- "PPEU" # Pirate
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'ANO'] <- "ANO 2011"
+vparty$v2pashname_fix[vparty$country_name == 'Czech Republic' & vparty$v2pashname == 'KDU/CSL' & vparty$year != 1996] <- "KDU-CSL"
+# Denmark
+vparty$v2pashname_fix[vparty$country_name == 'Denmark' & vparty$v2pashname == 'DF' & (vparty$year == 2007 | vparty$year == 2015)] <- "DFP"
+# Estonia
+vparty$v2pashname_fix[vparty$country_name == 'Estonia' & vparty$v2pashname == 'ERe'] <- "RE"
+vparty$v2pashname_fix[vparty$country_name == 'Estonia' & vparty$v2pashname == 'UVE/RP'] <- "RP"
+vparty$v2pashname_fix[vparty$country_name == 'Estonia' & vparty$v2pashname == 'I'] <- "IL"
+vparty$v2pashname_fix[vparty$country_name == 'Estonia' & vparty$v2pashname == 'SDE-M' & vparty$year <= 1999] <- "Moderates"
+vparty$v2pashname_fix[vparty$country_name == 'Estonia' & vparty$v2pashname == 'SDE-M' & vparty$year >= 2000] <- "SDE"
+vparty$v2panaallian_fix[vparty$country_name == 'Estonia' & vparty$v2pashname == 'RKI' & vparty$year == 1992] <- "IL"
+# Finland
+vparty$v2pashname_fix[vparty$country_name == 'Finland' & vparty$v2pashname == 'SP / P'] <- "PS" # True Finns
+vparty$v2pashname_fix[vparty$country_name == 'Finland' & vparty$v2pashname == 'VIHR'] <- "VL" 
+vparty$v2pashname_fix[vparty$country_name == 'Finland' & vparty$v2pashname == 'VAS'] <- "Vas" 
+vparty$v2pashname_fix[vparty$country_name == 'Finland' & vparty$v2pashname == 'SSDP' & vparty$year == 2019] <- "SSPD" 
+# Iceland
+vparty$v2pashname_fix[vparty$country_name == 'Iceland' & vparty$v2pashname == 'Sj'] <- "IP" # Independence
+vparty$v2pashname_fix[vparty$country_name == 'Iceland' & vparty$v2pashname == 'Graen'] <- "VGF"
+vparty$v2pashname_fix[vparty$country_name == 'Iceland' & vparty$v2pashname == 'F'] <- "PP"
+vparty$v2pashname_fix[vparty$country_name == 'Iceland' & vparty$v2pashname == 'Ab'] <- "People's Alliance"
+vparty$v2pashname_fix[vparty$country_name == 'Iceland' & vparty$v2pashname == 'A'] <- "SDP"
+vparty$v2pashname_fix[vparty$country_name == 'Iceland' & vparty$v2pashname == 'Sam'] <- "The Alliance"
+# Israel
+vparty$v2pashname_fix[vparty$country_name == 'Israel' & vparty$v2pashname == 'SHAS'] <- "Shas" 
+vparty$v2pashname_fix[vparty$country_name == 'Israel' & vparty$v2pashname == 'A' & vparty$year >= 1984] <- "Labour" # Labour Alignment
+vparty$v2pashname_fix[vparty$country_name == 'Israel' & vparty$v2pashname == 'A' & vparty$year == 1977] <- "Labour-M" # Labour Alignment
+vparty$v2pashname_fix[vparty$country_name == 'Israel' & vparty$v2pashname == 'A' & vparty$year == 1981] <- "Labour-Align" # Labour Alignment
+vparty$v2panaallian_fix[vparty$country_name == 'Israel' & vparty$v2pashname == 'A' & vparty$year == 2015] <- "Zionist Union"
+vparty$v2pashname_fix[vparty$country_name == 'Israel' & vparty$v2pashname == 'L'] <- "Likud"
+vparty$v2pashname_fix[vparty$country_name == 'Israel' & vparty$v2pashname == 'L' & vparty$year == 2009] <- "Likud-Ahi"
+# Luxembourg
+vparty$v2pashname_fix[vparty$country_name == 'Luxembourg' & vparty$v2pashname == 'LSAP'] <- "POSL" 
+vparty$v2pashname_fix[vparty$country_name == 'Luxembourg' & vparty$v2pashname == 'CSV'] <- "PCS"
+vparty$v2pashname_fix[vparty$country_name == 'Luxembourg' & vparty$v2pashname == 'Greng/GAP' & vparty$year >= 1994] <- "Green"
+# North Macedonia 
+vparty$v2pashname_fix[vparty$country_name == 'North Macedonia' & vparty$v2pashname == 'Social Democ...'] <- "SDSM"
+vparty$v2panaallian_fix[vparty$country_name == 'North Macedonia' & vparty$v2pashname == 'SM' & vparty$year == 1994] <- "SDSM"
+vparty$v2pashname_fix[vparty$country_name == 'North Macedonia' & vparty$v2pashname == 'SDSM' & vparty$year >= 2008 & vparty$year <= 2011] <- "Sonce"
+vparty$v2panaallian_fix[vparty$country_name == 'North Macedonia' & vparty$v2pashname == 'SDSM' & (vparty$year == 2002 | vparty$year == 2006)] <- "Together for Macedonia"
+vparty$v2panaallian_fix[vparty$country_name == 'North Macedonia' & vparty$v2pashname == 'SDSM' & (vparty$year == 2011)] <- "SDAM"
+vparty$v2panaallian_fix[vparty$country_name == 'North Macedonia' & vparty$v2pashname == 'VMRO-DPMNE' & (vparty$year == 2002)] <- "VMRO-DPMNE-LPM"
+vparty$v2panaallian_fix[vparty$country_name == 'North Macedonia' & vparty$v2pashname == 'VMRO-DPMNE' & (vparty$year == 2008)] <- "KzPM" # Coalition for a Better Macedonia
+# Norway
+vparty$v2pashname_fix[vparty$country_name == 'Norway' & vparty$v2pashname == 'Fr'] <- "Frp" 
+vparty$v2pashname_fix[vparty$country_name == 'Norway' & vparty$v2pashname == 'Sp/Bp'] <- "SP"
+vparty$v2pashname_fix[vparty$country_name == 'Norway' & vparty$v2pashname == 'Sp/Bp' & vparty$year == 2013] <- "Sp"
+# Romania
+vparty$v2pashname_fix[vparty$country_name == 'Romania' & vparty$v2pashname == 'PSD' & vparty$year <= 1995] <- "FSND"
+vparty$v2pashname_fix[vparty$country_name == 'Romania' & vparty$v2pashname == 'PSD' & vparty$year >= 1996 & vparty$year < 2001] <- "PSDR"
+vparty$v2pashname_fix[vparty$country_name == 'Romania' & vparty$v2pashname == 'PRM' & vparty$year >= 2000] <- "GRP"
+vparty$v2panaallian_fix[vparty$country_name == 'Romania' & vparty$v2panaallian == 'Alliance PSD+PC'] <- "PSD-PC"
+vparty$v2pashname_fix[vparty$country_name == 'Romania' & vparty$v2pashname == 'PD' & vparty$year >= 1992 & vparty$year <= 1995] <- "PD-FSN"
+vparty$v2pashname_fix[vparty$country_name == 'Romania' & vparty$v2pashname == 'UDMR / DAHR /  RMDSZ' & vparty$year == 2004] <- "UDMR"
+# Slovakia
+vparty$v2pashname_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'Smer'] <- 'Smer-SD'
+vparty$v2pashname_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'KDH' & vparty$year <= 1995] <- "MK"
+vparty$v2pashname_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'Smer' & vparty$year <= 2006] <- "Direction"
+vparty$v2pashname_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'SMK-MKP'] <- "SMK"
+vparty$v2pashname_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'HZDS' & (vparty$year == 1998|vparty$year == 2002)] <- "MDS"
+vparty$v2pashname_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'HZDS' & vparty$year == 1994] <- "HZDS/RSS"
+vparty$v2pashname_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'HZDS' & vparty$year == 2006] <- "LS-HZDS"
+vparty$v2pashname_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'SDKU-DS' & vparty$year == 2002] <- "SDKU"
+vparty$v2panaallian_fix[vparty$country_name == 'Slovakia' & vparty$v2pashname == 'SDKU-DS' & vparty$year == 2002] <- "SDKU-DS"
+# Slovenia
+vparty$v2pashname_fix[vparty$country_name == 'Slovenia' & vparty$v2pashname == 'SD / ZLSD' & vparty$year <= 1995] <- "ZL"
+vparty$v2pashname_fix[vparty$country_name == 'Slovenia' & vparty$v2pashname == 'SD / ZLSD' & vparty$year > 1995 & vparty$year <= 2007] <- "ZLSD"
+vparty$v2pashname_fix[vparty$country_name == 'Slovenia' & vparty$v2pashname == 'SD / ZLSD' & vparty$year >= 2008] <- "SD"
+vparty$v2pashname_fix[vparty$country_name == 'Slovenia' & vparty$v2pashname == 'NSi'] <- "NSI"
+vparty$v2pashname_fix[vparty$country_name == 'Slovenia' & vparty$v2pashname == 'LZJPS'] <- "PS"
+# Suriname
+vparty$v2pashname_fix[vparty$country_name == 'Suriname' & vparty$v2pashname == 'NFDD'] <- "NF"
+vparty$v2panaallian_fix[vparty$country_name == 'Suriname' & vparty$v2pashname == 'NFDD'] <- "NPS"
+# Lithuania
+vparty$v2pashname_fix[vparty$country_name == 'Lithuania' & vparty$v2pashname == 'NS'] <- "NU-SL"
+vparty$v2panaallian_fix[vparty$country_name == 'Lithuania' & vparty$v2pashname == 'TS-LKD'] <- "TS"
+# Mali
+vparty$v2pashname_fix[vparty$country_name == 'Mali' & vparty$v2pashname == 'ADEMA-PASJ'] <- "Adema"
+vparty$v2pashname_fix[vparty$country_name == 'Mali' & vparty$v2pashname == 'ADEMA-PASJ' & vparty$year >= 2013] <- "Adema/PASJ"
+# Vanuatu
+vparty$v2pashname_fix[vparty$country_name == 'Vanuatu' & vparty$v2pashname == 'UPM'] <- "UMP"
+# Guinea-Bissau
+vparty$v2pashname_fix[vparty$country_name == 'Guinea-Bissau' & vparty$v2pashname == 'RGB'] <- "RGB-MB"
+# Armenia
+vparty$v2pashname_fix[vparty$country_name == 'Armenia' & vparty$v2pashname == 'BHK'] <- "BH"
+# Timor-Leste
+vparty$v2pashname_fix[vparty$country_name == 'Timor-Leste' & vparty$v2pashname == 'FRTLI'] <- "Fretilin"
+# Comoros
+vparty$v2pashname_fix[vparty$country_name == 'Comoros' & vparty$v2pashname == 'BM'] <- "Mouvance Presidentielle"
+# Papua New Guinea
+vparty$v2pashname_fix[vparty$country_name == 'Papua New Guinea' & vparty$v2pashname == 'PP/PNUP' & vparty$year <= 2002] <- "Pangu"
+# Sri Lanka
+vparty$v2pashname_fix[vparty$country_name == 'Sri Lanka' & vparty$v2pashname == 'United Natio...'] <- "UNP"
+# Solomon Islands
+vparty$v2pashname_fix[vparty$country_name == 'Solomon Islands' & vparty$v2pashname == 'NURPP'] <- "GNUR"
+
+# All, independence
+vparty$v2pashname_fix[vparty$v2pashname == 'indep'] <- "independent"
+
+
+```
+
+
+
+
+```{r id government and opposition parties}
+
+### Identify parties using matching
+
+# create variables
+vparty$exec_party <- NA
+vparty$gov_party <- NA
+vparty$opp_party <- NA
+
+# identify legislative parties, government
+vparty$gov_party[vparty$v2pashname_fix == vparty$gov1me | vparty$v2pashname_fix == vparty$gov2me | vparty$v2pashname_fix == vparty$gov3me] <- 1
+# identify parties, opposition parties = 0
+vparty$gov_party[vparty$v2pashname_fix == vparty$opp1me | vparty$v2pashname_fix == vparty$opp2me | vparty$v2pashname_fix == vparty$opp3me] <- 0
+# identify parties, alliance = 1
+vparty$gov_party[vparty$v2panaallian_fix == vparty$gov1me | vparty$v2panaallian_fix == vparty$gov2me | vparty$v2panaallian_fix == vparty$gov3me] <- 1
+# identify parties, alliance = 1
+vparty$gov_party[vparty$v2panaallian_fix == vparty$opp1me | vparty$v2panaallian_fix == vparty$opp2me | vparty$v2panaallian_fix == vparty$opp3me] <- 0
+
+# identify legislative parties, opposition
+vparty$opp_party[vparty$v2pashname_fix == vparty$gov1me | vparty$v2pashname_fix == vparty$gov2me | vparty$v2pashname_fix == vparty$gov3me] <- 0
+# identify parties, opposition parties = 0
+vparty$opp_party[vparty$v2pashname_fix == vparty$opp1me | vparty$v2pashname_fix == vparty$opp2me | vparty$v2pashname_fix == vparty$opp3me] <- 1
+# identify parties, alliance = 1
+vparty$opp_party[vparty$v2panaallian_fix == vparty$gov1me | vparty$v2panaallian_fix == vparty$gov2me | vparty$v2panaallian_fix == vparty$gov3me] <- 0
+# identify parties, alliance = 1
+vparty$opp_party[vparty$v2panaallian_fix == vparty$opp1me | vparty$v2panaallian_fix == vparty$opp2me | vparty$v2panaallian_fix == vparty$opp3me] <- 1
+
+## identify non/presidential parties
+# in all systems
+# if execme does not match any party or alliance name, then assign exec_party = 0
+vparty$exec_party[(vparty$v2pashname_fix != vparty$execme & vparty$v2pashname != vparty$execme & vparty$v2panaallian_fix != vparty$execme & vparty$v2panaallian != vparty$execme) & !is.na(vparty$opp_party)] <- 0 # check original party & alliance name
+# if exec is independent and name does not match (remains NA until this point), then assign exec_party = 0
+#vparty$exec_party[vparty$execme == "independent" & is.na(vparty$exec_party)] <- 0
+## identify presidential parties
+# if execme matches any party or alliance name, then assign exec_party = 0
+vparty$exec_party[vparty$v2pashname_fix == vparty$execme | vparty$v2pashname == vparty$execme | vparty$v2panaallian_fix == vparty$execme | vparty$v2panaallian == vparty$execme] <- 1 # check original party & alliance name
+# Parliamentary systems
+vparty$exec_party[vparty$system == "Parliamentary" & (vparty$v2pashname_fix == vparty$gov1me | vparty$v2pashname == vparty$gov1me | vparty$v2panaallian_fix == vparty$gov1me | vparty$v2panaallian == vparty$gov1me) & !is.na(vparty$opp_party) & is.na(vparty$exec_party)] <- 1
+# if exec is independent and name does not match (remains NA until this point), then assign exec_party = 0
+vparty$exec_party[vparty$execme == "independent" & is.na(vparty$exec_party)] <- 0
+
+# Manual fix
+# Indonesia
+vparty$gov_party[vparty$country_name == 'Indonesia' & vparty$v2pashname == 'Nasdem' & vparty$year >= 2014 & vparty$year <= 2019] <- 1
+vparty$opp_party[vparty$country_name == 'Indonesia' & vparty$v2pashname == 'Nasdem' & vparty$year >= 2014 & vparty$year <= 2019] <- 0
+# Belgium
+vparty$gov_party[vparty$country_name == 'Belgium' & vparty$v2pashname == 'PVV-OVLD' & vparty$year == 2007] <- 1
+vparty$opp_party[vparty$country_name == 'Belgium' & vparty$v2pashname == 'PVV-OVLD' & vparty$year == 2007] <- 0
+
+
+
+vparty.exec <- subset(vparty, year >= 1976 & year <= 2015 & ((system == "Presidential" & v2paseatshare >= 30.0) | (system != "Presidential" & v2paseatshare >= 15.0)) & boix_democracy == 1) # 
+vparty.exec.na <- subset(vparty.exec, is.na(exec_party) & !is.na(execme))
+summary(vparty.exec$exec_party) # 42
+
+```
+
+```{r after check assign gov}
+
+### Identify gov and opp parties using inference
+
+# when only one party/coalition in power (no gov2 or gov3)
+# inductively assign gov_party = 0 after review, as long as seat share < 15.0% and numvote is not 0.
+vparty$gov_party[is.na(vparty$gov_party) & vparty$v2paseatshare <= 15 & vparty$v2paseatshare >= 5.0 & vparty$numvote != 0 & !is.na(vparty$v2xpa_antiplural) & !(vparty$country_name %in% c("Kosovo","Palestine/West Bank","Somaliland","Hong Kong","Montenegro","Sao Tome and Principe","Serbia","Seychelles","Zanzibar")) & vparty$boix_democracy == 1 & is.na(vparty$gov2me) & is.na(vparty$gov3me)] <- 0
+# same for opposition
+vparty$opp_party[is.na(vparty$gov_party) & vparty$v2paseatshare <= 15 & vparty$v2paseatshare >= 5.0 & vparty$numvote != 0 & !is.na(vparty$v2xpa_antiplural) & !(vparty$country_name %in% c("Kosovo","Palestine/West Bank","Somaliland","Hong Kong","Montenegro","Sao Tome and Principe","Serbia","Seychelles","Zanzibar")) & vparty$boix_democracy == 1 & is.na(vparty$gov2me) & is.na(vparty$gov3me)] <- 1
+
+# If gov_party and opp_party remain unassigned AND v2pavote is less than the smallest gov party's vote (opp3vote), then assign gov_party = 0, opp_party = 1.
+vparty$opp_party[(is.na(vparty$gov_party)|is.na(vparty$opp_party)) & (vparty$v2pavote <= vparty$gov3vote)] <- 1
+vparty$gov_party[(is.na(vparty$gov_party)|is.na(vparty$opp_party)) & (vparty$v2pavote <= vparty$gov3vote)] <- 0
+
+# If opp_party remains unassigned and gov_party = 0, then assign opp_party = 1.
+vparty$opp_party[is.na(vparty$opp_party) & vparty$gov_party == 0] <- 1
+
+```
+
+```{r after check assign pres}
+
+### Identify pres parties using inference
+
+# If pres remains NA and gov_party or opp_party is assigned, then assign exec_party = 0.
+vparty$exec_party[is.na(vparty$exec_party) & (!is.na(vparty$gov_party)|!is.na(vparty$opp_party)) & !(vparty$country_name %in% c("Kosovo","Palestine/West Bank","Somaliland","Hong Kong","Montenegro","Sao Tome and Principe","Serbia","Seychelles","Zanzibar")) & vparty$boix_democracy == 1] <- 0
+
+```
+
+```{r check merge}
+
+# check merge, states/systems
+vparty.dpi.check <- subset(vparty, year >= 1976 & year <= 2020 & is.na(system) & boix_democracy == 1)
+unique(vparty.dpi.check$country_name)
+
+# check merge, parties
+vparty.dpi.check.gov <- subset(vparty, year >= 1976 & year <= 2020 & v2paseatshare >= 5.0 & (is.na(gov_party)  | is.na(opp_party)) & (v2pavote >= gov2vote) & !is.na(v2xpa_antiplural) & !(country_name %in% c("Kosovo","Palestine/West Bank","Somaliland","Hong Kong","Montenegro","Sao Tome and Principe","Serbia","Seychelles","Zanzibar")) & boix_democracy == 1 & frac <= 1 & numvote > 0)
+unique(vparty.dpi.check.gov$country_name)
+
+# total observations merged
+vparty.dpi.check.alldata <- subset(vparty, year >= 1976 & year <= 2020 & !is.na(v2xpa_antiplural) & !is.na(gov_party) & !(country_name %in% c("Kosovo","Palestine/West Bank","Somaliland","Hong Kong","Montenegro","Sao Tome and Principe","Serbia","Seychelles","Zanzibar")) & boix_democracy == 1 & frac <= 1)
+#unique(vparty.dpi.check.alldata$country_name)
+
+freq(vparty.dpi.check.alldata$gov_party)
+freq(vparty.dpi.check.alldata$exec_party)
+
+```
+
+```{r check coverage}
+
+# All parties
+vparty.1975.2014 <- subset(vparty, year >= 1975 & year <= 2014 & !is.na(v2xpa_antiplural) & boix_democracy == 1)
+# coded observations
+vparty.1975.2014.gov <- subset(vparty, year >= 1975 & year <= 2014 & !is.na(v2xpa_antiplural) & !is.na(gov_party) & boix_democracy == 1)
+# describe seat share
+freq(vparty.1975.2014$gov_party)
+mean(vparty.1975.2014$v2paseatshare[!is.na(vparty.1975.2014$gov_party)], na.rm = TRUE) # coded/matched observations
+mean(vparty.1975.2014$v2paseatshare[is.na(vparty.1975.2014$gov_party)], na.rm = TRUE) # not coded/matched
+
+# Low frac
+vparty.1975.2014.lowfrac <- subset(vparty, year >= 1975 & year <= 2014 & !is.na(v2xpa_antiplural) & frac <= 0.9 & boix_democracy == 1)
+# coded observations
+vparty.1975.2014.gov.lowfrac <- subset(vparty, year >= 1975 & year <= 2014 & !is.na(v2xpa_antiplural) & !is.na(gov_party) & frac <= 0.9 & boix_democracy == 1)
+# describe seat share
+freq(vparty.1975.2014.lowfrac$gov_party)
+mean(vparty.1975.2014.lowfrac$v2paseatshare[!is.na(vparty.1975.2014.lowfrac$gov_party)], na.rm = TRUE) # coded/matched observations
+mean(vparty.1975.2014.lowfrac$v2paseatshare[is.na(vparty.1975.2014.lowfrac$gov_party)], na.rm = TRUE) # not coded/matched
+
+# Above 5 percent seat share
+vparty.1975.2014.seatshare <- subset(vparty, year >= 1975 & year <= 2014 & !is.na(v2xpa_antiplural) & v2paseatshare >= 5.0 & boix_democracy == 1)
+# coded observations
+vparty.1975.2014.gov.seatshare <- subset(vparty, year >= 1975 & year <= 2014 & !is.na(v2xpa_antiplural) & !is.na(gov_party) & v2paseatshare >= 5.0 & boix_democracy == 1)
+# describe seat share
+freq(vparty.1975.2014.seatshare$gov_party)
+mean(vparty.1975.2014.seatshare$v2paseatshare[!is.na(vparty.1975.2014.seatshare$gov_party)], na.rm = TRUE) # coded/matched observations
+mean(vparty.1975.2014.seatshare$v2paseatshare[is.na(vparty.1975.2014.seatshare$gov_party)], na.rm = TRUE) # not coded/matched
+
+```
+
+
+
+### Calculate Legislative ideology weights (using V-Party data)
 
 ```{r api weight}
 
@@ -96,6 +1164,7 @@ vparty$extremism_weight <- (abs(vparty$v2pariglef))*vparty$v2paseatshare*0.01
 
 library(ggrepel)
 
+
 ```
 
 ### Calculate government ideology scores (from V-Party)
@@ -104,44 +1173,47 @@ Use aggregate() command by country and year, sum weighted scores.
 
 ```{r transform vparty}
 ### transform data, API
-df1 <- aggregate(vparty$api_weight, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+df1 <- aggregate(vparty$api_weight, by=list(vparty$country_name, vparty$year, vparty$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
 
 # rename columns
 names(df1)[names(df1) == 'Group.1'] <- 'country_name'
 names(df1)[names(df1) == 'Group.2'] <- 'year'
+names(df1)[names(df1) == 'Group.3'] <- 'gov_party'
 names(df1)[names(df1) == 'x'] <- 'api_gov'
 
 # describe
-describe(df1$api_gov)
+#describe(df1$api_gov)
 
 # coutry year match id
 df1$cy2 <- paste(df1$country_name, df1$year)
 
 ### transform data, Populism
-df2 <- aggregate(vparty$popul_weight, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+df2 <- aggregate(vparty$popul_weight, by=list(vparty$country_name, vparty$year, vparty$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
 
 # rename columns
 names(df2)[names(df2) == 'Group.1'] <- 'country_name'
 names(df2)[names(df2) == 'Group.2'] <- 'year'
+names(df2)[names(df2) == 'Group.3'] <- 'gov_party'
 names(df2)[names(df2) == 'x'] <- 'popul_gov'
 
 # describe
-describe(df2$popul_gov)
+#describe(df2$popul_gov)
 
 # coutry year match id
 df2$cy2 <- paste(df2$country_name, df2$year)
 
 
 ### transform data, Left Right
-df2a <- aggregate(vparty$conserv_weight, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+df2a <- aggregate(vparty$conserv_weight, by=list(vparty$country_name, vparty$year, vparty$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
 
 # rename columns
 names(df2a)[names(df2a) == 'Group.1'] <- 'country_name'
 names(df2a)[names(df2a) == 'Group.2'] <- 'year'
+names(df2a)[names(df2a) == 'Group.3'] <- 'gov_party'
 names(df2a)[names(df2a) == 'x'] <- 'conserv_gov'
 
 # describe
-describe(df2a$conserv_gov)
+#describe(df2a$conserv_gov)
 
 # coutry year match id
 df2a$cy2 <- paste(df2a$country_name, df2a$year)
@@ -149,56 +1221,172 @@ df2a$cy2 <- paste(df2a$country_name, df2a$year)
 
 
 ### transform data, Extremism
-df2b <- aggregate(vparty$extremism_weight, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+df2b <- aggregate(vparty$extremism_weight, by=list(vparty$country_name, vparty$year, vparty$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
 
 # rename columns
 names(df2b)[names(df2b) == 'Group.1'] <- 'country_name'
 names(df2b)[names(df2b) == 'Group.2'] <- 'year'
+names(df2b)[names(df2b) == 'Group.3'] <- 'gov_party'
 names(df2b)[names(df2b) == 'x'] <- 'extremism_gov'
 
 # describe
-describe(df2b$extremism_gov)
+#describe(df2b$extremism_gov)
 
 # coutry year match id
 df2b$cy2 <- paste(df2b$country_name, df2b$year)
 
 
 ### transform data, seat share
-df3 <- aggregate(vparty$v2paseatshare, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+df3 <- aggregate(vparty$v2paseatshare, by=list(vparty$country_name, vparty$year, vparty$gov_party), FUN=sum, na.rm=TRUE, na.action=NULL)
 
 # rename columns
 names(df3)[names(df3) == 'Group.1'] <- 'country_name'
 names(df3)[names(df3) == 'Group.2'] <- 'year'
+names(df3)[names(df3) == 'Group.3'] <- 'gov_party'
 names(df3)[names(df3) == 'x'] <- 'v2paseatshare'
 
 # describe
-describe(df3$v2paseatshare)
+#describe(df3$v2paseatshare)
 
 # coutry year match id
 df3$cy2 <- paste(df3$country_name, df3$year)
 
-df3.check <- subset(df3, year >= 1965 & year <= 2019 & v2paseatshare <= 85)
+
+### transform data, seat share
+df3a <- aggregate(vparty$v2paseatshare, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df3a)[names(df3a) == 'Group.1'] <- 'country_name'
+names(df3a)[names(df3a) == 'Group.2'] <- 'year'
+names(df3a)[names(df3a) == 'x'] <- 'seatshare_total'
+
+# describe
+#describe(df3$v2paseatshare)
+
+# coutry year match id
+df3a$cy2 <- paste(df3a$country_name, df3a$year)
+
+
+### transform data, seat share
+df4 <- aggregate(vparty$exec_party, by=list(vparty$country_name, vparty$year), FUN=sum, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df4)[names(df4) == 'Group.1'] <- 'country_name'
+names(df4)[names(df4) == 'Group.2'] <- 'year'
+names(df4)[names(df4) == 'x'] <- 'exec_party'
+
+# describe
+#describe(df3$v2paseatshare)
+
+# coutry year match id
+df4$cy2 <- paste(df4$country_name, df4$year)
+
+### transform data, anti-pluralism
+df4a <- aggregate(vparty$v2xpa_antiplural, by=list(vparty$country_name, vparty$year, vparty$exec_party), FUN=mean, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df4a)[names(df4a) == 'Group.1'] <- 'country_name'
+names(df4a)[names(df4a) == 'Group.2'] <- 'year'
+names(df4a)[names(df4a) == 'Group.3'] <- 'exec_party'
+names(df4a)[names(df4a) == 'x'] <- 'api_exec_party'
+
+# describe
+#describe(df3$v2paseatshare)
+
+# coutry year match id
+df4a$cy2 <- paste(df4a$country_name, df4a$year)
+
+### transform data, populism
+df4b <- aggregate(vparty$v2xpa_popul, by=list(vparty$country_name, vparty$year, vparty$exec_party), FUN=mean, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df4b)[names(df4b) == 'Group.1'] <- 'country_name'
+names(df4b)[names(df4b) == 'Group.2'] <- 'year'
+names(df4b)[names(df4b) == 'Group.3'] <- 'exec_party'
+names(df4b)[names(df4b) == 'x'] <- 'popul_exec_party'
+
+# describe
+#describe(df3$v2paseatshare)
+
+# coutry year match id
+df4b$cy2 <- paste(df4b$country_name, df4b$year)
+
+### transform data, left right
+df4c <- aggregate(vparty$v2pariglef, by=list(vparty$country_name, vparty$year, vparty$exec_party), FUN=mean, na.rm=TRUE, na.action=NULL)
+
+# rename columns
+names(df4c)[names(df4c) == 'Group.1'] <- 'country_name'
+names(df4c)[names(df4c) == 'Group.2'] <- 'year'
+names(df4c)[names(df4c) == 'Group.3'] <- 'exec_party'
+names(df4c)[names(df4c) == 'x'] <- 'conserv_exec_party'
+
+# describe
+#describe(df3$v2paseatshare)
+
+# coutry year match id
+df4c$cy2 <- paste(df4c$country_name, df4c$year)
+
+# create exec_party = 1 only subsets
+df4a <- subset(df4a, exec_party == 1)
+df4b <- subset(df4b, exec_party == 1)
+df4c <- subset(df4c, exec_party == 1)
 
 ```
 
 ### Combine scores into one dataset
 
 ```{r populate country level data}
+
 # V-Party
+# Government parties
 # popul_gov, df2
-df1$popul_gov <- df2$popul_gov[match(df1$cy2, df2$cy2)]
+df1$popul_gov[df1$gov_party == 1] <- df2$popul_gov[match(df1$cy2, df2$cy2) & df2$gov_party == 1]
 # conserv_gov, df2a
-df1$conserv_gov <- df2a$conserv_gov[match(df1$cy2, df2a$cy2)]
+df1$conserv_gov[df1$gov_party == 1] <- df2a$conserv_gov[match(df1$cy2, df2a$cy2) & df2a$gov_party == 1]
 # extremism_gov, df2b
-df1$extremism_gov <- df2b$extremism_gov[match(df1$cy2, df2b$cy2)]
+df1$extremism_gov[df1$gov_party == 1] <- df2b$extremism_gov[match(df1$cy2, df2b$cy2) & df2b$gov_party == 1]
 # seatshare, df3
-df1$seatshare_gov <- df3$v2paseatshare[match(df1$cy2, df3$cy2)]
+df1$seatshare_gov[df1$gov_party == 1] <- df3$v2paseatshare[match(df1$cy2, df3$cy2) & df3$gov_party == 1]
+# seatshare total, df3
+df1$seatshare_total <- df3a$seatshare_total[match(df1$cy2, df3a$cy2)]
+# api_exec_party, df4a
+df1$api_exec_party <- df4a$api_exec_party[match(df1$cy2, df4a$cy2)]
+# popul_pres, df4b
+df1$popul_exec_party <- df4b$popul_exec_party[match(df1$cy2, df4b$cy2)]
+# conserv_pres, df2c
+df1$conserv_exec_party <- df4c$conserv_exec_party[match(df1$cy2, df4c$cy2)]
 
-df.gov_scores <- df1
+# Opposition parties
+# popul_gov, df2
+df1$popul_gov[df1$gov_party == 0] <- df2$popul_gov[match(df1$cy2, df2$cy2) & df2$gov_party == 0]
+# conserv_gov, df2a
+df1$conserv_gov[df1$gov_party == 0] <- df2a$conserv_gov[match(df1$cy2, df2a$cy2) & df2a$gov_party == 0]
+# extremism_gov, df2b
+df1$extremism_gov[df1$gov_party == 0] <- df2b$extremism_gov[match(df1$cy2, df2b$cy2) & df2b$gov_party == 0]
+# seatshare, df3
+df1$seatshare_gov[df1$gov_party == 0] <- df3$v2paseatshare[match(df1$cy2, df3$cy2) & df3$gov_party == 0]
+```
 
-df1 <- subset(df1, !(api_gov == 0.0 & popul_gov == 0.0 & conserv_gov == 0.0))
+```{r merge and subset}
+
+## V-party
+# cy and cy2
+df1$cy <- vparty$cy[match(df1$cy2, vparty$cy2)]
+
+## Boix, Miller, Rosato
+# Democracy
+df1$boix_democracy <- boix2013$democracy[match(df1$cy, boix2013$cy)]
+summary(df1$boix_democracy) #n=7281, 918 NA
+
+#df1 <- subset(df1, !(api_gov == 0.0 & popul_gov == 0.0 & conserv_gov == 0.0))
+
+# subset usable data by government/opposition
+df.gov_scores <- subset(df1, gov_party == 1)
+df.opp_scores <- subset(df1, gov_party == 0)
 
 ```
+
+
 
 
 ## Load Judicial Independence Data (Linzer and Staton 2015)
@@ -921,15 +2109,10 @@ vdem$country_name_fix[vdem$country_name == "Türkiye"] <- "Turkey"
 vdem$cy <- paste(vdem$country_text_id, vdem$year)
 vdem$cy2 <- paste(vdem$country_name_fix, vdem$year)
 
-# Lag variable (2 years) using fixest package: https://lrberge.github.io/fixest/reference/lag.formula.html
-#install.packages(fixest)
-library(fixest)
-vdem$v2jupoatck_lag1 <- lag(v2jupoatck ~ country_name + year, k = 1, vdem)
-vdem$v2juhccomp_lag1 <- lag(v2juhccomp ~ country_name + year, k = 1, vdem)
-vdem$v2juhcind_lag1 <- lag(v2juhcind ~ country_name + year, k = 1, vdem)
-describe(vdem$v2juhccomp_lag1)
+
 
 ```
+
 
 
 ## Transform data
@@ -940,11 +2123,59 @@ Code references:
 Combining: https://stackoverflow.com/questions/71526607/combining-multiple-rows-per-observation-into-one-in-r
 Aggregate command: https://www.statology.org/aggregate-r/
 
+```{r lag vdem}
+# 3.8.1.4 Court packing (C) v2jupack
+# 3.8.1.3 Government attacks on judiciary (C) (v2jupoatck)
+# 3.8.1.2 Judicial purges (C) (v2jupurge)
+# 3.8.1.10 Compliance with high court (C) (v2juhccomp)
+# 2.2.10 Judicial constraints on the executive index (D) (v2x_jucon)
+
+# Lag variable (2 years) using fixest package: https://lrberge.github.io/fixest/reference/lag.formula.html
+#install.packages(fixest)
+library(fixest)
+
+# attack
+vdem$v2jupoatck_lag2 <- lag_fml(v2jupoatck ~ country_name + year, k = -2, vdem)
+vdem$v2jupoatck_lag1 <- lag_fml(v2jupoatck ~ country_name + year, k = -1, vdem)
+vdem$v2jupoatck_lead1 <- lag_fml(v2jupoatck ~ country_name + year, k = 1, vdem)
+
+# compliance
+vdem$v2juhccomp_lag2 <- lag_fml(v2juhccomp ~ country_name + year, k = -2, vdem)
+vdem$v2juhccomp_lag1 <- lag_fml(v2juhccomp ~ country_name + year, k = -1, vdem)
+vdem$v2juhccomp_lead1 <- lag_fml(v2juhccomp ~ country_name + year, k = 1, vdem)
+
+# purges
+vdem$v2jupurge_lag2 <- lag_fml(v2jupurge ~ country_name + year, k = -2, vdem)
+vdem$v2jupurge_lag1 <- lag_fml(v2jupurge ~ country_name + year, k = -1, vdem)
+vdem$v2jupurge_lead1 <- lag_fml(v2jupurge ~ country_name + year, k = 1, vdem)
+
+# packing
+vdem$v2jupack_lag2 <- lag_fml(v2jupack ~ country_name + year, k = -2, vdem)
+vdem$v2jupack_lag1 <- lag_fml(v2jupack ~ country_name + year, k = -1, vdem)
+vdem$v2jupack_lead1 <- lag_fml(v2jupack ~ country_name + year, k = 1, vdem)
+
+# constraints on exec
+vdem$v2x_jucon_lag2 <- lag_fml(v2x_jucon ~ country_name + year, k = -2, vdem)
+vdem$v2x_jucon_lag1 <- lag_fml(v2x_jucon ~ country_name + year, k = -1, vdem)
+vdem$v2x_jucon_lead1 <- lag_fml(v2x_jucon ~ country_name + year, k = 1, vdem)
+
+# hc independence
+vdem$v2juhcind_lag2 <- lag_fml(v2juhcind ~ country_name + year, k = -2, vdem)
+vdem$v2juhcind_lag1 <- lag_fml(v2juhcind ~ country_name + year, k = -1, vdem)
+vdem$v2juhcind_lead1 <- lag_fml(v2juhcind ~ country_name + year, k = 1, vdem)
+
+```
+
 ## Build dataframe
 
 ```{r replication dataframe}
 
-df <- subset(vdem, select = c(cy, cy2, country_name, year, v2x_jucon, v2jupoatck, v2jupoatck_lag1,  v2jupack, v2jupurge, v2juhcind, v2juhcind_lag1, v2juhccomp, v2xlg_legcon, v2x_divparctrl, v2juhccomp_lag1, v2x_polyarchy, v2x_regime, e_gdppc, e_regiongeo, e_regionpol))
+df <- subset(vdem, select = c(cy, cy2, country_name, year, v2jupoatck_lag2, v2jupoatck_lag1, v2jupoatck, v2juhccomp_lag2, v2juhccomp_lag1, v2juhccomp, v2jupurge_lag2, v2jupurge_lag1, v2jupurge, v2jupack_lag2, v2jupack_lag1, v2jupack, v2x_jucon_lag2, v2x_jucon_lag1, v2x_jucon, v2juhcind_lag2, v2juhcind_lag1, v2juhcind, v2xlg_legcon, v2x_divparctrl, v2x_polyarchy, v2x_regime, e_gdppc, e_regiongeo, e_regionpol)) 
+
+# 3.8.1.4 Court packing (C) v2jupack
+# 3.8.1.3 Government attacks on judiciary (C) (v2jupoatck)
+# 3.8.1.2 Judicial purges (C) (v2jupurge)
+# 3.8.1.10 Compliance with high court (C) (v2juhccomp)
 
 ```
 
@@ -1039,17 +2270,123 @@ df$boix_democracy_duration_log <- log(as.numeric(df$boix_democracy_duration))
 df$fdi_inflow <- fdi.inflow$Value[match(df$cy2, fdi.inflow$cy2)]
 df$fdi_inflow_log <- log(df$fdi_inflow)
 
+# DPI
+# system (pres. parl.)
+df$system <- DPI$system[match(df$cy, DPI$cy)] 
+# system (pres. parl.)
+df$checks <- DPI$checks[match(df$cy, DPI$cy)] 
+# system (pres. parl.)
+df$frac <- DPI$frac[match(df$cy, DPI$cy)] 
+# Legislative variables
+# govfrac
+df$govfrac <- DPI$govfrac[match(df$cy, DPI$cy)] 
+# NUMVOTE, Vote share of Government Parties
+df$numvote <- DPI$numvote[match(df$cy, DPI$cy)] 
+# LARGEST GOVT PARTY, GOV1ME Name
+df$gov1me <- DPI$gov1me[match(df$cy, DPI$cy)] 
+# GOV1VOTE Vote Share
+df$gov1vote <- DPI$gov1vote[match(df$cy, DPI$cy)] 
+# 2nd GOVT. PARTY, GOV2ME Name
+df$gov2me <- DPI$gov2me[match(df$cy, DPI$cy)] 
+# GOV2VOTE Vote Share
+df$gov2vote <- DPI$gov2vote[match(df$cy, DPI$cy)] 
+# 3rd GOVT. PARTY, GOV3ME Name
+df$gov3me <- DPI$gov3me[match(df$cy, DPI$cy)] 
+# GOV3VOTE Vote Share
+df$gov3vote <- DPI$gov3vote[match(df$cy, DPI$cy)] 
+# OPPFRAC, The probability that two deputies from among the opposition parties will be of different parties.
+df$oppfrac <- DPI$oppfrac[match(df$cy, DPI$cy)] 
+# OPPVOTE, Vote Share of Opposition Parties
+df$oppvote <- DPI$oppvote[match(df$cy, DPI$cy)] 
+# LARGEST OPP. PARTY, OPP1ME Name
+df$opp1me <- DPI$opp1me[match(df$cy, DPI$cy)] 
+# OPP1VOTE Vote Share
+df$opp1vote <- DPI$opp1vote[match(df$cy, DPI$cy)] 
+# 2nd OPP. PARTY, OPP2ME Name
+df$opp2me <- DPI$opp2me[match(df$cy, DPI$cy)] 
+# OPP2VOTE Vote Share
+df$opp2vote <- DPI$opp2vote[match(df$cy, DPI$cy)] 
+# 3rd OPP. PARTY, OPP3ME Name
+df$opp3me <- DPI$opp3me[match(df$cy, DPI$cy)] 
+# OPP3VOTE Vote Share
+df$opp3vote <- DPI$opp3vote[match(df$cy, DPI$cy)] 
+
+# Executive variables
+# EXECME, Name of party executive
+df$execme <- DPI$execme[match(df$cy, DPI$cy)] 
+# PERCENTL, President got what % of votes in the final round?
+df$percentl <- DPI$percentl[match(df$cy, DPI$cy)]
+# EXECNAT, Nationalist (1 if yes) executive
+df$execnat <- DPI$execnat[match(df$cy, DPI$cy)] 
+#ALLHOUSE, Does party of executive control all relevant houses?
+df$allhouse <- DPI$allhouse[match(df$cy, DPI$cy)] 
+
 # V-Party combined
+# api_gov, df.gov_scores
+df$api_gov <- df.gov_scores$api_gov[match(df$cy2, df.gov_scores$cy2)]
+# popul_gov, df.gov_scores
+df$popul_gov <- df.gov_scores$popul_gov[match(df$cy2, df.gov_scores$cy2)]
+# conserv_gov, df.gov_scores
+df$conserv_gov <- df1$conserv_gov[match(df$cy2, df.gov_scores$cy2)]
+# conserv_gov, df.gov_scores
+df$extremism_gov <- df.gov_scores$extremism_gov[match(df$cy2, df.gov_scores$cy2)]
+# seatshare_gov, df.gov_scores
+df$seatshare_gov <- df.gov_scores$seatshare_gov[match(df$cy2, df.gov_scores$cy2)]
+# seatshare_total, df1
+df$seatshare_total <- df1$seatshare_total[match(df$cy2, df1$cy2)]
 # api_gov, df1
-df$api_gov <- df1$api_gov[match(df$cy2, df1$cy2)]
+df$api_exec_party <- df1$api_exec_party[match(df$cy2, df1$cy2)]
 # popul_gov, df1
-df$popul_gov <- df1$popul_gov[match(df$cy2, df1$cy2)]
+df$popul_exec_party <- df1$popul_exec_party[match(df$cy2, df1$cy2)]
 # conserv_gov, df1
-df$conserv_gov <- df1$conserv_gov[match(df$cy2, df1$cy2)]
-# conserv_gov, df1
-df$extremism_gov <- df1$extremism_gov[match(df$cy2, df1$cy2)]
-# seatshare_gov, df1
-df$seatshare_gov <- df1$seatshare_gov[match(df$cy2, df1$cy2)]
+df$conserv_exec_party <- df1$conserv_exec_party[match(df$cy2, df1$cy2)]
+# api_gov, df.opp_scores
+df$api_opp <- df.opp_scores$api_gov[match(df$cy2, df.opp_scores$cy2)]
+# popul_gov, df.opp_scores
+df$popul_opp <- df.opp_scores$popul_gov[match(df$cy2, df.opp_scores$cy2)]
+# conserv_gov, df.opp_scores
+df$conserv_opp <- df.opp_scores$conserv_gov[match(df$cy2, df.opp_scores$cy2)]
+# seatshare_gov, df.opp_scores
+df$seatshare_opp <- df.opp_scores$seatshare_gov[match(df$cy2, df.opp_scores$cy2)]
+
+```
+
+```{r final df variables}
+
+# high low edi for plots
+df$edi_high[df$v2x_polyarchy >= 0.6] <- "high edi"
+df$edi_high[df$v2x_polyarchy < 0.6] <- "low edi"
+
+# regimes of the world
+# VDem 5.1.1 Regimes of the world – the RoW measure (D) (v2x_regime)
+# 0: Closed autocracy, 1: Electoral autocracy, 2: Electoral democracy, 3: Liberal democracy
+df$regime_type <- NA
+df$regime_type[df$v2x_regime == 0 | df$v2x_regime == 1] <- "Autocratic"
+df$regime_type[df$v2x_regime == 2] <- "Electoral democracy"
+df$regime_type[df$v2x_regime == 3] <- "Liberal democracy"
+
+# pres_gov calculation
+df$api_exec_gov <- NA
+df$popul_exec_gov <- NA
+df$conserv_exec_gov <- NA
+# Take the average of presidential and cabinet ideological scores to produce a presidential government score (a.k.a weight both branches with 0.5).
+df$api_exec_gov <- (df$api_exec_party+ df$api_gov)/2
+df$popul_exec_gov <- (df$popul_exec_party + df$popul_gov)/2
+df$conserv_exec_gov <- (df$conserv_exec_party + df$conserv_gov)/2
+
+
+# model calculation
+df$api_model <- NA
+df$popul_model <- NA
+df$conserv_model <- NA
+# For presidential, use exec_gov
+df$api_model[df$system == "Presidential" & !is.na(df$api_exec_gov)] <- df$api_exec_gov[df$system == "Presidential" & !is.na(df$api_exec_gov)]
+df$popul_model[df$system == "Presidential" & !is.na(df$popul_exec_gov)] <- df$popul_exec_gov[df$system == "Presidential" & !is.na(df$popul_exec_gov)]
+df$conserv_model[df$system == "Presidential" & !is.na(df$conserv_exec_gov)] <- df$conserv_exec_gov[df$system == "Presidential" & !is.na(df$conserv_exec_gov)]
+# For presidential, use exec_gov
+df$api_model[df$system != "Presidential" & !is.na(df$api_gov)] <- df$api_gov[df$system != "Presidential" & !is.na(df$api_gov)]
+df$popul_model[df$system != "Presidential" & !is.na(df$popul_gov)] <- df$popul_gov[df$system != "Presidential" & !is.na(df$popul_gov)]
+df$conserv_model[df$system != "Presidential" & !is.na(df$conserv_gov)] <- df$conserv_gov[df$system != "Presidential" & !is.na(df$conserv_gov)]
 
 ```
 
@@ -1150,6 +2487,52 @@ df.cabinets$boix_democracy_duration_log <- log(as.numeric(df.cabinets$boix_democ
 df.cabinets$fdi_inflow <- fdi.inflow$Value[match(df.cabinets$cs2, fdi.inflow$cy2)]
 df.cabinets$fdi_inflow_log <- log(df.cabinets$fdi_inflow)
 
+# DPI
+# system (pres. parl.)
+df.cabinets$system <- DPI$system[match(df.cabinets$cy, DPI$cy)] 
+# Legislative variables
+# govfrac
+df.cabinets$govfrac <- DPI$govfrac[match(df.cabinets$cy, DPI$cy)] 
+# NUMVOTE, Vote share of Government Parties
+df.cabinets$numvote <- DPI$numvote[match(df.cabinets$cy, DPI$cy)] 
+# LARGEST GOVT PARTY, GOV1ME Name
+df.cabinets$gov1me <- DPI$gov1me[match(df.cabinets$cy, DPI$cy)] 
+# GOV1VOTE Vote Share
+df.cabinets$gov1vote <- DPI$gov1vote[match(df.cabinets$cy, DPI$cy)] 
+# 2nd GOVT. PARTY, GOV2ME Name
+df.cabinets$gov2me <- DPI$gov2me[match(df.cabinets$cy, DPI$cy)] 
+# GOV2VOTE Vote Share
+df.cabinets$gov2vote <- DPI$gov2vote[match(df.cabinets$cy, DPI$cy)] 
+# 3rd GOVT. PARTY, GOV3ME Name
+df.cabinets$gov3me <- DPI$gov3me[match(df.cabinets$cy, DPI$cy)] 
+# GOV3VOTE Vote Share
+df.cabinets$gov3vote <- DPI$gov3vote[match(df.cabinets$cy, DPI$cy)] 
+# OPPFRAC, The probability that two deputies from among the opposition parties will be of different parties.
+df.cabinets$oppfrac <- DPI$oppfrac[match(df.cabinets$cy, DPI$cy)] 
+# OPPVOTE, Vote Share of Opposition Parties
+df.cabinets$oppvote <- DPI$oppvote[match(df.cabinets$cy, DPI$cy)] 
+# LARGEST OPP. PARTY, OPP1ME Name
+df.cabinets$opp1me <- DPI$opp1me[match(df.cabinets$cy, DPI$cy)] 
+# OPP1VOTE Vote Share
+df.cabinets$opp1vote <- DPI$opp1vote[match(df.cabinets$cy, DPI$cy)] 
+# 2nd OPP. PARTY, OPP2ME Name
+df.cabinets$opp2me <- DPI$opp2me[match(df.cabinets$cy, DPI$cy)] 
+# OPP2VOTE Vote Share
+df.cabinets$opp2vote <- DPI$opp2vote[match(df.cabinets$cy, DPI$cy)] 
+# 3rd OPP. PARTY, OPP3ME Name
+df.cabinets$opp3me <- DPI$opp3me[match(df.cabinets$cy, DPI$cy)] 
+# OPP3VOTE Vote Share
+df.cabinets$opp3vote <- DPI$opp3vote[match(df.cabinets$cy, DPI$cy)] 
+# Executive variables
+# EXECME, Name of party executive
+df.cabinets$execme <- DPI$execme[match(df.cabinets$cy, DPI$cy)] 
+# PERCENTL, President got what % of votes in the final round?
+df.cabinets$percentl <- DPI$percentl[match(df.cabinets$cy, DPI$cy)]
+# EXECNAT, Nationalist (1 if yes) executive
+df.cabinets$execnat <- DPI$execnat[match(df.cabinets$cy, DPI$cy)] 
+#ALLHOUSE, Does party of executive control all relevant houses?
+df.cabinets$allhouse <- DPI$allhouse[match(df.cabinets$cy, DPI$cy)] 
+
 # V-Party combined
 # api_gov, df1
 #df.cabinets$api_gov <- df1$api_gov[match(df.cabinets$cs2, df1$cy2)]
@@ -1164,8 +2547,24 @@ df.cabinets$fdi_inflow_log <- log(df.cabinets$fdi_inflow)
 
 ```
 
+```{r check merge}
 
+## Boix, Miller, Rosato
+# Democracy
+vparty$boix_democracy <- boix2013$democracy[match(vparty$cy, boix2013$cy)]
 
+# check merge
+vparty.dpi.check <- subset(vparty, year >= 1975 & year <= 2020 & is.na(system) & boix_democracy == 1)
+unique(vparty.dpi.check$country_name)
+
+vparty.dpi.check.gov <- subset(vparty, year >= 1975 & year <= 2020 & is.na(gov_party) & v2paseatshare >= 5.0 & !(country_name %in% c("Kosovo","Palestine/West Bank","Somaliland","Hong Kong","Montenegro","Sao Tome and Principe","Serbia","Seychelles","Zanzibar")) & boix_democracy == 1)
+unique(vparty.dpi.check.gov$country_name)
+
+# dataset unique parties
+vparty.dpi.valid <- subset(vparty, year >= 1976 & year <= 2015 & (!is.na(system)) & boix_democracy == 1 & (!is.na(v2xpa_antiplural)))
+describe(unique(vparty.dpi.valid$v2paenname))
+
+```
 
 # Export data
 
@@ -1175,10 +2574,11 @@ df.cabinets$fdi_inflow_log <- log(df.cabinets$fdi_inflow)
 #vdem_states
 
 # Export DataFrame as CSV file
-write.csv(df,file='~/Desktop/Phd Program/Fall 2024/Spring 2025/Quant Model Submission/ideology_independence_data.csv')
+write.csv(df,file='~/Desktop/Phd Program/Fall 2024/Spring 2025/Quant Model Submission/ideology_independence_data_7_24.csv')
+
 
 # Export DataFrame as RData file
-save(df, cabinets, df.cabinets, df.gov_scores, boix2013, fdi.inflow, linzerstaton, polcon, vparty, file='~/Desktop/Phd Program/Fall 2024/Spring 2025/Quant Model Submission/ideology_independence_data.RData')
+save(df, cabinets, df.cabinets, df.gov_scores, df.opp_scores, boix2013, fdi.inflow, linzerstaton, polcon, vparty, DPI, file='~/Desktop/Phd Program/Fall 2024/Spring 2025/Quant Model Submission/ideology_independence_data.RData')
 
 
 ```
