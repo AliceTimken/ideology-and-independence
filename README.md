@@ -1,4 +1,4 @@
-For data used in the model, see "Data files" > model_data_(date).csv
+For data used in the OLS models, see "Data files" > model_data_(date).csv
 
 For R code to run OLS models, see "R files" > model_v3.Rmd
 
