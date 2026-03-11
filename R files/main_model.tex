@@ -1,0 +1,48 @@
+\begin{table}
+\centering
+\begin{talltblr}[         %% tabularray outer open
+caption={Anti-pluralism, Anti-elitism, and Judicial independence},
+entry=none,label=none,
+note{}={+ p < 0.1, * p < 0.05, ** p < 0.01, *** p < 0.001},
+]                     %% tabularray outer close
+{                     %% tabularray inner open
+colspec={Q[]Q[]Q[]Q[]Q[]Q[]Q[]},
+column{1}={halign=l,},
+column{2}={halign=c,},
+column{3}={halign=c,},
+column{4}={halign=c,},
+column{5}={halign=c,},
+column{6}={halign=c,},
+column{7}={halign=c,},
+hline{24}={1,2,3,4,5,6,7}{solid, 0.05em, black},
+}                     %% tabularray inner close
+\toprule
+& Legislative Control & Legislative FE & Leg. Opposition FE & Executive Control & Executive FE & Exec. Opposition FE \\ \midrule %% TinyTableHeader
+Anti-pluralism       & \num{-0.739}*** & \num{-0.107}* & \num{-0.115}+ & \num{-0.481}*** & \num{-0.078}** & \num{-0.080}** \\
+& (\num{0.066})   & (\num{0.051}) & (\num{0.059}) & (\num{0.027})   & (\num{0.026})  & (\num{0.030})  \\
+Anti-elitism         & \num{0.019}     & \num{-0.088}* & \num{-0.137}* & \num{-0.152}*** & \num{-0.045}*  & \num{-0.058}+  \\
+& (\num{0.070})   & (\num{0.040}) & (\num{0.061}) & (\num{0.035})   & (\num{0.022})  & (\num{0.032})  \\
+Econ. Right          &                  & \num{-0.002}  & \num{-0.006}  &                  & \num{0.008}**  & \num{0.011}**  \\
+&                  & (\num{0.005}) & (\num{0.005}) &                  & (\num{0.002})  & (\num{0.004})  \\
+Competition          &                  & \num{0.027}   & \num{0.002}   &                  & \num{0.035}    & \num{0.030}    \\
+&                  & (\num{0.031}) & (\num{0.029}) &                  & (\num{0.029})  & (\num{0.030})  \\
+Fractionalization    &                  & \num{-0.090}+ & \num{-0.071}  &                  & \num{-0.047}   & \num{-0.023}   \\
+&                  & (\num{0.052}) & (\num{0.056}) &                  & (\num{0.057})  & (\num{0.063})  \\
+Log GDP/capita       &                  & \num{0.078}*  & \num{0.084}*  &                  & \num{0.075}*   & \num{0.075}+   \\
+&                  & (\num{0.035}) & (\num{0.037}) &                  & (\num{0.037})  & (\num{0.038})  \\
+Log Years Democratic &                  & \num{0.014}   & \num{0.013}   &                  & \num{0.010}    & \num{0.012}    \\
+&                  & (\num{0.010}) & (\num{0.011}) &                  & (\num{0.009})  & (\num{0.009})  \\
+Abs. Majority        &                  & \num{-0.005}  & \num{-0.004}  &                  & \num{-0.010}   & \num{-0.009}   \\
+&                  & (\num{0.009}) & (\num{0.009}) &                  & (\num{0.008})  & (\num{0.009})  \\
+Opp. Anti-pluralism  &                  &                & \num{-0.029}  &                  &                 & \num{0.002}    \\
+&                  &                & (\num{0.050}) &                  &                 & (\num{0.054})  \\
+Opp. Anti-elitism    &                  &                & \num{-0.101}  &                  &                 & \num{-0.081}   \\
+&                  &                & (\num{0.097}) &                  &                 & (\num{0.098})  \\
+Opp. Econ. Right     &                  &                & \num{0.002}   &                  &                 & \num{0.013}    \\
+&                  &                & (\num{0.010}) &                  &                 & (\num{0.014})  \\
+Num.Obs.             & \num{731}       & \num{720}     & \num{684}     & \num{658}       & \num{651}      & \num{622}      \\
+R2                   & \num{0.251}     & \num{0.938}   & \num{0.940}   & \num{0.382}     & \num{0.945}    & \num{0.945}    \\
+R2 Adj.              & \num{0.249}     & \num{0.927}   & \num{0.929}   & \num{0.380}     & \num{0.935}    & \num{0.934}    \\
+\bottomrule
+\end{talltblr}
+\end{table}
